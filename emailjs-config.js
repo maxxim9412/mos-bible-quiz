@@ -29,7 +29,7 @@ const EMAILJS_REPORT_TEMPLATE_ID  = 'template_a4pv7ci'; // ← вставьте 
 const EMAILJS_PUBLIC_KEY          = '8OwjPHSLQARWu2NJ3';
 
 // Email администратора для получения отчётов
-const ADMIN_EMAIL = 'YOUR_ADMIN_EMAIL'; // ← вставьте свой email
+const ADMIN_EMAIL = 'maxxim9422@yandex.ru'; // ← вставьте свой email
 
 // Не трогайте эту строку
 if (EMAILJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY') {
