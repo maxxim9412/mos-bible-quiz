@@ -269,6 +269,8 @@ textarea { resize: vertical; }
 
 /* ── Forgot password ── */
 .btn-link {
+  display: block;
+  width: 100%;
   background: none;
   border: none;
   color: var(--text-muted);
