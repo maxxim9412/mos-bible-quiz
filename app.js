@@ -132,7 +132,7 @@ function archiveAndWipe(sched) {
 async function sendReportEmail(results, sched) {
   const emailjsReady = typeof EMAILJS_PUBLIC_KEY !== 'undefined' && EMAILJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY';
   const templateReady = typeof EMAILJS_REPORT_TEMPLATE_ID !== 'undefined' && EMAILJS_REPORT_TEMPLATE_ID !== 'YOUR_REPORT_TEMPLATE_ID';
-  const adminEmailReady = typeof ADMIN_EMAIL !== 'undefined' && ADMIN_EMAIL !== 'maxxim9422@yandex.ru';
+  const adminEmailReady = typeof ADMIN_EMAIL !== 'undefined' && ADMIN_EMAIL !== 'YOUR_ADMIN_EMAIL';
 
   if (!emailjsReady || !templateReady || !adminEmailReady) return;
 
