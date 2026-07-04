@@ -939,6 +939,25 @@ document.getElementById('report-modal-overlay').addEventListener('click', e => {
 /* ── Question modal ── */
 let editingIdx = null;
 
+function addOptionRow(wrap, value = '', checked = false) {
+  const count = wrap.querySelectorAll('.modal-opt-row').length;
+  const row = document.createElement('div');
+  row.className = 'modal-opt-row';
+  row.innerHTML = `
+    <input type="radio" name="correct-opt" value="${count}" ${checked ? 'checked' : ''} />
+    <input type="text" class="opt-input" placeholder="Вариант ${count + 1}" value="${value}" />
+    <button type="button" class="btn-icon btn-danger btn-del-opt" title="Удалить">✕</button>`;
+  row.querySelector('.btn-del-opt').addEventListener('click', () => {
+    if (wrap.querySelectorAll('.modal-opt-row').length <= 2) return;
+    row.remove();
+    wrap.querySelectorAll('.modal-opt-row').forEach((r, i) => {
+      r.querySelector('input[type="radio"]').value = i;
+      r.querySelector('.opt-input').placeholder = `Вариант ${i + 1}`;
+    });
+  });
+  wrap.appendChild(row);
+}
+
 function openModal(idx) {
   editingIdx = idx;
   document.getElementById('modal-title').textContent = idx === null ? 'Новый вопрос' : 'Редактировать вопрос';
@@ -948,17 +967,16 @@ function openModal(idx) {
   document.getElementById('modal-q').value = q.q;
   const wrap = document.getElementById('modal-options');
   wrap.innerHTML = '';
-  q.options.forEach((opt, i) => {
-    const row = document.createElement('div');
-    row.className = 'modal-opt-row';
-    row.innerHTML = `
-      <input type="radio" name="correct-opt" value="${i}" ${i === q.answer ? 'checked' : ''} />
-      <input type="text" class="opt-input" placeholder="Вариант ${i + 1}" value="${opt.trim()}" />`;
-    wrap.appendChild(row);
-  });
+  q.options.forEach((opt, i) => addOptionRow(wrap, opt.trim(), i === q.answer));
   document.getElementById('modal-overlay').classList.remove('hidden');
   document.getElementById('modal-q').focus();
 }
+
+document.getElementById('btn-add-option').addEventListener('click', () => {
+  const wrap = document.getElementById('modal-options');
+  if (wrap.querySelectorAll('.modal-opt-row').length >= 6) return;
+  addOptionRow(wrap);
+});
 
 document.getElementById('modal-cancel').addEventListener('click', () =>
   document.getElementById('modal-overlay').classList.add('hidden'));
