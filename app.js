@@ -1,7 +1,6 @@
 /* ─── Constants ─── */
-const ADMIN_USER    = 'admin';
-const ADMIN_PASS    = 'admin123';
-const QUIZ_DURATION = 30 * 60;
+const ADMIN_USER = 'admin';
+const ADMIN_PASS = 'admin123';
 
 /* ─── Firebase ─── */
 let firebaseDB = null;
@@ -386,8 +385,10 @@ function renderHomeAvailability() {
         <div class="completed-score-pct">${res.pct}%</div>
         <div class="completed-score-time">Время: ${formatTime(res.elapsed)} · ${res.date}</div>`;
     } else {
+      const qs = getQuestions();
       document.getElementById('home-available').classList.remove('hidden');
-      document.getElementById('home-q-count').textContent = `${getQuestions().length} вопросов`;
+      document.getElementById('home-q-count').textContent = `${qs.length} вопросов`;
+      document.getElementById('home-duration').textContent = `${qs.length} минут`;
       document.getElementById('home-schedule-end').textContent = `До ${fmtDatetime(sched.end)}`;
     }
   } else {
@@ -418,7 +419,7 @@ document.getElementById('btn-admin-shortcut').addEventListener('click', showAdmi
    GLOBAL TIMER
 ══════════════════════════════════════ */
 function startGlobalTimer() {
-  quiz.remaining = QUIZ_DURATION;
+  quiz.remaining = quiz.duration;
   updateTimerDisplay();
   globalTimer = setInterval(() => {
     quiz.remaining--;
@@ -452,7 +453,9 @@ function shuffle(arr) {
 }
 
 function startQuiz() {
-  quiz = { questions: shuffle(getQuestions()), idx: 0, score: 0, answers: [], remaining: QUIZ_DURATION, startTime: Date.now() };
+  const questions = shuffle(getQuestions());
+  const duration = questions.length * 60;
+  quiz = { questions, idx: 0, score: 0, answers: [], remaining: duration, duration, startTime: Date.now() };
   showScreen('quiz');
   startGlobalTimer();
   renderQuestion();
@@ -515,7 +518,7 @@ function finishQuiz(timeOut) {
   stopGlobalTimer();
   const total = quiz.questions.length;
   const score = quiz.score;
-  const elapsed = QUIZ_DURATION - quiz.remaining;
+  const elapsed = quiz.duration - quiz.remaining;
   const pct = Math.round((score / total) * 100);
   const finishedAt = Date.now();
 
