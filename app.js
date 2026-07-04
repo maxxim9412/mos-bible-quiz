@@ -123,7 +123,40 @@ function archiveAndWipe(sched) {
 
   sched.archived = true;
   store.set('quiz_schedule', sched);
+
+  sendReportEmail(results, sched);
+
   if (document.getElementById('screen-home').classList.contains('active')) renderHomeAvailability();
+}
+
+async function sendReportEmail(results, sched) {
+  const emailjsReady = typeof EMAILJS_PUBLIC_KEY !== 'undefined' && EMAILJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY';
+  const templateReady = typeof EMAILJS_REPORT_TEMPLATE_ID !== 'undefined' && EMAILJS_REPORT_TEMPLATE_ID !== 'YOUR_REPORT_TEMPLATE_ID';
+  const adminEmailReady = typeof ADMIN_EMAIL !== 'undefined' && ADMIN_EMAIL !== 'maxxim9422@yandex.ru';
+
+  if (!emailjsReady || !templateReady || !adminEmailReady) return;
+
+  const reportLines = results.map((r, i) => {
+    const medals = ['🥇', '🥈', '🥉'];
+    const place = medals[i] || `${i + 1}.`;
+    return `${place} ${r.username} — ${r.score}/${r.total} (${r.pct}%)`;
+  }).join('\n');
+
+  const reportText = results.length
+    ? reportLines
+    : 'Никто не прошёл викторину.';
+
+  try {
+    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, {
+      to_email:     ADMIN_EMAIL,
+      to_name:      'Администратор',
+      period:       `${fmtDatetime(sched.start)} — ${fmtDatetime(sched.end)}`,
+      participants: results.length,
+      report_text:  reportText,
+    });
+  } catch (err) {
+    console.error('Ошибка отправки отчёта:', err);
+  }
 }
 
 /* ══════════════════════════════════════
