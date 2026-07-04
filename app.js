@@ -822,6 +822,61 @@ document.getElementById('btn-sched-clear').addEventListener('click', () => {
 });
 
 /* ── Reports tab ── */
+document.getElementById('btn-send-report-now').addEventListener('click', async () => {
+  const btn = document.getElementById('btn-send-report-now');
+  const statusEl = document.getElementById('report-send-status');
+  const users = store.get('users') || {};
+  const sched = getSchedule();
+
+  const results = [];
+  Object.values(users).forEach(u =>
+    (u.results || []).forEach(r => results.push({ username: u.username, ...r }))
+  );
+  results.sort((a, b) => b.pct - a.pct || (a.finishedAt || 0) - (b.finishedAt || 0));
+
+  btn.disabled = true;
+  btn.textContent = '📧 Отправляем...';
+  statusEl.classList.add('hidden');
+
+  const emailjsReady = typeof EMAILJS_PUBLIC_KEY !== 'undefined' && EMAILJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY';
+  const templateReady = typeof EMAILJS_REPORT_TEMPLATE_ID !== 'undefined' && EMAILJS_REPORT_TEMPLATE_ID !== 'YOUR_REPORT_TEMPLATE_ID';
+  const adminEmailReady = typeof ADMIN_EMAIL !== 'undefined' && ADMIN_EMAIL !== 'YOUR_ADMIN_EMAIL';
+
+  if (!emailjsReady || !templateReady || !adminEmailReady) {
+    statusEl.textContent = '❌ Ошибка: проверьте ADMIN_EMAIL и EMAILJS_REPORT_TEMPLATE_ID в emailjs-config.js';
+    statusEl.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = '📧 Отправить отчёт сейчас';
+    return;
+  }
+
+  const reportLines = results.map((r, i) => {
+    const medals = ['🥇', '🥈', '🥉'];
+    const place = medals[i] || `${i + 1}.`;
+    return `${place} ${r.username} — ${r.score}/${r.total} (${r.pct}%)`;
+  }).join('\n');
+
+  const reportText = results.length ? reportLines : 'Никто не прошёл викторину.';
+  const period = sched ? `${fmtDatetime(sched.start)} — ${fmtDatetime(sched.end)}` : 'Без расписания';
+
+  try {
+    await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, {
+      to_email:     ADMIN_EMAIL,
+      to_name:      'Администратор',
+      period,
+      participants: results.length,
+      report_text:  reportText,
+    });
+    statusEl.textContent = `✅ Отчёт отправлен на ${ADMIN_EMAIL}`;
+  } catch (err) {
+    statusEl.textContent = `❌ Ошибка отправки: ${err?.text || err?.message || JSON.stringify(err)}`;
+  }
+
+  statusEl.classList.remove('hidden');
+  btn.disabled = false;
+  btn.textContent = '📧 Отправить отчёт сейчас';
+});
+
 function renderReportsTab() {
   const raw     = store.get('quiz_reports');
   const reports = Array.isArray(raw) ? raw : fbToArray(raw);
@@ -985,6 +1040,9 @@ document.getElementById('btn-subtitle-save').addEventListener('click', () => {
       /* Продолжаем в режиме localStorage */
     }
   }
+
+  /* Проверяем истёкшее расписание сразу после загрузки данных */
+  checkScheduleExpiry();
 
   /* Скрываем экран загрузки */
   if (overlay) overlay.style.display = 'none';
