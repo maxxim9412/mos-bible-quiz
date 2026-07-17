@@ -2,6 +2,11 @@
 const ADMIN_USER = 'admin';
 const ADMIN_PASS = 'admin123';
 
+/* Одноразовый режим: правильный ответ не показывается по ходу викторины,
+   вместо этого в конце открывается разбор всех вопросов.
+   false — вернуться к показу ответа после каждого вопроса. */
+const SHOW_ANSWER_REVIEW = true;
+
 /* ─── Firebase ─── */
 let firebaseDB = null;
 
@@ -108,7 +113,7 @@ function archiveAndWipe(sched) {
   const users   = store.get('users') || {};
   const results = [];
   Object.values(users).forEach(u =>
-    (u.results || []).forEach(r => results.push({ username: u.username, ...r }))
+    (u.results || []).forEach(({ review, ...r }) => results.push({ username: u.username, ...r }))
   );
   results.sort((a, b) => b.pct - a.pct || (a.finishedAt || 0) - (b.finishedAt || 0));
 
@@ -384,6 +389,8 @@ function renderHomeAvailability() {
         <div class="completed-score-num">${res.score}/${res.total}</div>
         <div class="completed-score-pct">${res.pct}%</div>
         <div class="completed-score-time">Время: ${formatTime(res.elapsed)} · ${res.date}</div>`;
+      document.getElementById('btn-review')
+        .classList.toggle('hidden', !(SHOW_ANSWER_REVIEW && res.review));
     } else {
       const qs = getQuestions();
       document.getElementById('home-available').classList.remove('hidden');
@@ -414,6 +421,23 @@ document.getElementById('btn-start').addEventListener('click', () => {
   startQuiz();
 });
 document.getElementById('btn-admin-shortcut').addEventListener('click', showAdmin);
+
+/* ══════════════════════════════════════
+   ANSWER REVIEW (доступен, пока идёт сеанс)
+══════════════════════════════════════ */
+document.getElementById('btn-review').addEventListener('click', showReview);
+document.getElementById('btn-back-review').addEventListener('click', showHome);
+
+function showReview() {
+  const res = getUserCurrentResult();
+  if (!res || !res.review) { renderHomeAvailability(); return; }
+  const sched = getSchedule();
+  document.getElementById('review-note').textContent =
+    `Ваш результат: ${res.score}/${res.total} (${res.pct}%)`
+    + (sched ? ` · разбор доступен до ${fmtDatetime(sched.end)}` : '');
+  renderAnswerReview(document.getElementById('review-answers'), fbToArray(res.review));
+  showScreen('review');
+}
 
 /* ══════════════════════════════════════
    GLOBAL TIMER
@@ -468,7 +492,9 @@ function renderQuestion() {
   document.getElementById('progress-fill').style.width = `${(quiz.idx / total) * 100}%`;
   document.getElementById('quiz-question').textContent = q.q;
   document.getElementById('quiz-feedback').classList.add('hidden');
-  document.getElementById('btn-next').classList.add('hidden');
+  const nextBtn = document.getElementById('btn-next');
+  nextBtn.classList.add('hidden');
+  nextBtn.textContent = quiz.idx === total - 1 ? 'Завершить →' : 'Следующий →';
 
   const optCont = document.getElementById('quiz-options');
   optCont.innerHTML = '';
@@ -502,7 +528,7 @@ function selectAnswer(chosen) {
     feedback.textContent = `❌ Неверно. Правильный ответ: «${q.options[correct].trim()}»`;
     feedback.classList.add('wrong');
   }
-  quiz.answers.push({ q: q.q, chosen, correct, isCorrect, options: q.options });
+  quiz.answers[quiz.idx] = chosen;
   document.getElementById('btn-next').classList.remove('hidden');
 }
 
@@ -514,10 +540,45 @@ document.getElementById('btn-next').addEventListener('click', () => {
 /* ══════════════════════════════════════
    RESULTS
 ══════════════════════════════════════ */
+/* Разбор: по одной записи на каждый вопрос, включая те, до которых не дошли.
+   chosen === -1 означает «нет ответа» (null Firebase молча выбрасывает). */
+function buildReview() {
+  return quiz.questions.map((q, i) => {
+    const chosen = quiz.answers[i];
+    return {
+      q: q.q,
+      options: q.options.map(o => o.trim()),
+      correct: q.answer,
+      chosen: chosen === undefined || chosen === null ? -1 : chosen,
+    };
+  });
+}
+
+function renderAnswerReview(container, review) {
+  container.innerHTML = '';
+  review.forEach((a, i) => {
+    const noAnswer  = a.chosen === -1;
+    const isCorrect = !noAnswer && a.chosen === a.correct;
+    const row = document.createElement('div');
+    row.className = 'answer-row';
+    row.innerHTML = `
+      <span class="icon">${noAnswer ? '➖' : isCorrect ? '✅' : '❌'}</span>
+      <div class="q">
+        <div>${i + 1}. ${a.q}</div>
+        <div class="your-ans ${isCorrect ? 'ok' : 'bad'}">
+          ${noAnswer ? 'Вы не ответили' : `Ваш ответ: ${a.options[a.chosen]}`}
+        </div>
+        ${isCorrect ? '' : `<div class="correct-ans">✔ Правильный ответ: ${a.options[a.correct]}</div>`}
+      </div>`;
+    container.appendChild(row);
+  });
+}
+
 function finishQuiz(timeOut) {
   stopGlobalTimer();
   const total = quiz.questions.length;
-  const score = quiz.score;
+  const review = SHOW_ANSWER_REVIEW ? buildReview() : null;
+  const score = review ? review.filter(a => a.chosen === a.correct).length : quiz.score;
   const elapsed = quiz.duration - quiz.remaining;
   const pct = Math.round((score / total) * 100);
   const finishedAt = Date.now();
@@ -536,24 +597,30 @@ function finishQuiz(timeOut) {
   document.getElementById('result-time').textContent  = `Потрачено времени: ${formatTime(elapsed)}`;
 
   const answersEl = document.getElementById('result-answers');
-  answersEl.innerHTML = '';
-  quiz.answers.forEach(a => {
-    const row = document.createElement('div');
-    row.className = 'answer-row';
-    row.innerHTML = `
-      <span class="icon">${a.isCorrect ? '✅' : '❌'}</span>
-      <div class="q">
-        <div>${a.q}</div>
-        ${!a.isCorrect ? `<div class="correct-ans">✔ ${a.options[a.correct].trim()}</div>` : ''}
-      </div>`;
-    answersEl.appendChild(row);
-  });
+  if (review) {
+    renderAnswerReview(answersEl, review);
+  } else {
+    answersEl.innerHTML = '';
+    quiz.answers.forEach(a => {
+      const row = document.createElement('div');
+      row.className = 'answer-row';
+      row.innerHTML = `
+        <span class="icon">${a.isCorrect ? '✅' : '❌'}</span>
+        <div class="q">
+          <div>${a.q}</div>
+          ${!a.isCorrect ? `<div class="correct-ans">✔ ${a.options[a.correct].trim()}</div>` : ''}
+        </div>`;
+      answersEl.appendChild(row);
+    });
+  }
 
   if (!currentUser.isAdmin) {
     const users = store.get('users') || {};
     if (users[currentUser.username]) {
+      const entry = { score, total, pct, elapsed, finishedAt, date: new Date().toLocaleDateString('ru-RU') };
+      if (review) entry.review = review;
       users[currentUser.username].results = users[currentUser.username].results || [];
-      users[currentUser.username].results.unshift({ score, total, pct, elapsed, finishedAt, date: new Date().toLocaleDateString('ru-RU') });
+      users[currentUser.username].results.unshift(entry);
       store.set('users', users);
       currentUser = users[currentUser.username];
     }

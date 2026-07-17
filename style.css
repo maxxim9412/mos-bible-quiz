@@ -208,6 +208,11 @@ textarea { resize: vertical; }
 .answer-row .icon { flex-shrink: 0; margin-top: 1px; }
 .answer-row .q { flex: 1; }
 .answer-row .correct-ans { font-size: .8rem; color: #86efac; margin-top: 3px; }
+.answer-row .your-ans { font-size: .8rem; color: var(--text-muted); margin-top: 3px; }
+.answer-row .your-ans.ok  { color: #86efac; }
+.answer-row .your-ans.bad { color: #fca5a5; }
+.review-full { max-height: 62vh; }
+#review-note { margin-bottom: 12px; }
 .result-actions { display: flex; gap: 12px; }
 .result-actions button { flex: 1; }
 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260704" />
+  <link rel="stylesheet" href="style.css?v=20260717" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -122,6 +122,7 @@
           <h2>Вы уже прошли викторину</h2>
           <p class="start-desc">В этом сеансе повторное прохождение недоступно.</p>
           <div id="home-completed-score" class="completed-score"></div>
+          <button id="btn-review" class="btn-primary btn-large hidden">📋 Разбор ответов</button>
         </div>
 
         <div id="home-admin" class="start-screen hidden">
@@ -167,6 +168,19 @@
         <div class="result-actions">
           <button id="btn-home" class="btn-primary">На главную</button>
         </div>
+      </div>
+    </section>
+
+    <!-- ЭКРАН: Разбор ответов -->
+    <section id="screen-review" class="screen">
+      <div class="card wide">
+        <header class="top-bar">
+          <button id="btn-back-review" class="btn-ghost">← Назад</button>
+          <h2 style="margin:0">📋 Разбор ответов</h2>
+          <span></span>
+        </header>
+        <p id="review-note" class="counter"></p>
+        <div id="review-answers" class="result-answers review-full"></div>
       </div>
     </section>
 
@@ -297,9 +311,9 @@
 
   </div>
 
-  <script src="data.js?v=20260704"></script>
-  <script src="firebase-config.js?v=20260704"></script>
-  <script src="emailjs-config.js?v=20260704"></script>
-  <script src="app.js?v=20260704"></script>
+  <script src="data.js?v=20260717"></script>
+  <script src="firebase-config.js?v=20260717"></script>
+  <script src="emailjs-config.js?v=20260717"></script>
+  <script src="app.js?v=20260717"></script>
 </body>
 </html>
