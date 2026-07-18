@@ -638,15 +638,20 @@ function finishQuiz(timeOut) {
   if (review) {
     renderAnswerReview(answersEl, review);
   } else {
+    /* SHOW_ANSWER_REVIEW=false: старый вид — только отвеченные вопросы,
+       без "Ваш ответ", правильный ответ показан лишь для ошибок. */
     answersEl.innerHTML = '';
-    quiz.answers.forEach(a => {
+    quiz.questions.forEach((q, i) => {
+      const chosen = quiz.answers[i];
+      if (chosen === undefined || chosen === null) return;
+      const isCorrect = chosen === q.answer;
       const row = document.createElement('div');
       row.className = 'answer-row';
       row.innerHTML = `
-        <span class="icon">${a.isCorrect ? '✅' : '❌'}</span>
+        <span class="icon">${isCorrect ? '✅' : '❌'}</span>
         <div class="q">
-          <div>${a.q}</div>
-          ${!a.isCorrect ? `<div class="correct-ans">✔ ${a.options[a.correct].trim()}</div>` : ''}
+          <div>${q.q}</div>
+          ${!isCorrect ? `<div class="correct-ans">✔ ${q.options[q.answer].trim()}</div>` : ''}
         </div>`;
       answersEl.appendChild(row);
     });
