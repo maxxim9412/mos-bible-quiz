@@ -30,6 +30,21 @@ function fbToArray(val) {
   return Object.values(val).filter(x => x !== null && x !== undefined);
 }
 
+/* Точечная запись одного пользователя: пишет только users/<username>,
+   а не весь узел 'users' целиком. Так параллельные регистрации/сохранения
+   результатов у разных людей не затирают друг друга — раньше именно
+   это приводило к пропаже участников и результатов при одновременной записи.
+   userObj === null удаляет пользователя. */
+function saveUser(username, userObj) {
+  const users = store.get('users') || {};
+  if (userObj === null) delete users[username];
+  else users[username] = userObj;
+  localStorage.setItem('users', JSON.stringify(users));
+  if (firebaseDB) {
+    firebaseDB.ref('users/' + username).set(userObj).catch(console.error);
+  }
+}
+
 /* ─── State ─── */
 let currentUser     = null;
 let quiz            = {};
@@ -106,7 +121,26 @@ function checkScheduleExpiry() {
   const sched = getSchedule();
   if (!sched || !sched.enabled || sched.archived) return;
   if (scheduleState(sched) !== 'expired') return;
-  archiveAndWipe(sched);
+
+  /* В момент закрытия у этого сеанса обычно открыто сразу много вкладок
+     (все участники + админ) — каждая раз в 10с проверяет истечение.
+     Без транзакции все они одновременно решат, что архивируют сеанс,
+     и отчёт/письмо с результатами уйдут по нескольку раз. Транзакция
+     на флаге archived гарантирует, что дальше пройдёт только одна из них. */
+  if (firebaseDB) {
+    firebaseDB.ref('quiz_schedule').transaction(cur => {
+      if (!cur || cur.archived) return; // уже архивируется другой вкладкой — не продолжаем
+      return { ...cur, archived: true };
+    }, (err, committed, snapshot) => {
+      if (err) { console.error(err); return; }
+      if (!committed) return; // проиграли гонку за право архивировать
+      archiveAndWipe(snapshot.val());
+    });
+  } else {
+    sched.archived = true;
+    store.set('quiz_schedule', sched);
+    archiveAndWipe(sched);
+  }
 }
 
 function archiveAndWipe(sched) {
@@ -121,12 +155,16 @@ function archiveAndWipe(sched) {
   reports.unshift({ id: Date.now(), start: sched.start, end: sched.end, closedAt: new Date().toISOString(), results });
   store.set('quiz_reports', reports);
 
+  /* Точечно обнуляем results каждого участника (без перезаписи всего узла
+     'users'), чтобы не затереть чей-то ещё не долетевший до базы результат. */
   Object.keys(users).forEach(k => { users[k].results = []; });
-  store.set('users', users);
+  localStorage.setItem('users', JSON.stringify(users));
+  if (firebaseDB) {
+    const updates = {};
+    Object.keys(users).forEach(k => { updates['users/' + k + '/results'] = []; });
+    firebaseDB.ref().update(updates).catch(console.error);
+  }
   if (currentUser && !currentUser.isAdmin) currentUser.results = [];
-
-  sched.archived = true;
-  store.set('quiz_schedule', sched);
 
   sendReportEmail(results, sched);
 
@@ -242,9 +280,9 @@ document.getElementById('form-register').addEventListener('submit', e => {
     errEl.classList.remove('hidden'); return;
   }
   errEl.classList.add('hidden');
-  users[username] = { username, email, password, registeredAt: new Date().toISOString(), results: [] };
-  store.set('users', users);
-  loginUser(users[username]);
+  const newUser = { username, email, password, registeredAt: new Date().toISOString(), results: [] };
+  saveUser(username, newUser);
+  loginUser(newUser);
 });
 
 document.getElementById('form-login').addEventListener('submit', e => {
@@ -311,8 +349,8 @@ document.getElementById('btn-forgot-send').addEventListener('click', async () =>
   errEl.classList.add('hidden');
 
   const tempPass = genTempPassword();
-  users[user.username].password = tempPass;
-  store.set('users', users);
+  const updatedUser = { ...user, password: tempPass };
+  saveUser(user.username, updatedUser);
 
   const btn = document.getElementById('btn-forgot-send');
   btn.textContent = 'Отправка...';
@@ -616,13 +654,13 @@ function finishQuiz(timeOut) {
 
   if (!currentUser.isAdmin) {
     const users = store.get('users') || {};
-    if (users[currentUser.username]) {
+    const freshUser = users[currentUser.username];
+    if (freshUser) {
       const entry = { score, total, pct, elapsed, finishedAt, date: new Date().toLocaleDateString('ru-RU') };
       if (review) entry.review = review;
-      users[currentUser.username].results = users[currentUser.username].results || [];
-      users[currentUser.username].results.unshift(entry);
-      store.set('users', users);
-      currentUser = users[currentUser.username];
+      const updatedUser = { ...freshUser, results: [entry, ...(freshUser.results || [])] };
+      saveUser(currentUser.username, updatedUser);
+      currentUser = updatedUser;
     }
   }
   showScreen('result');
@@ -823,11 +861,10 @@ function renderUsersTab() {
 }
 
 function adminResetPassword(username) {
-  const users   = store.get('users') || {};
+  const users = store.get('users') || {};
   if (!users[username]) return;
   const tempPass = genTempPassword();
-  users[username].password = tempPass;
-  store.set('users', users);
+  saveUser(username, { ...users[username], password: tempPass });
 
   document.getElementById('reset-modal-body').innerHTML = `
     <p style="margin-bottom:12px">Новый временный пароль для <strong>${username}</strong>:</p>
@@ -840,9 +877,7 @@ function adminResetPassword(username) {
 
 function adminDeleteUser(username) {
   if (!confirm(`Удалить пользователя «${username}»? Это действие нельзя отменить.`)) return;
-  const users = store.get('users') || {};
-  delete users[username];
-  store.set('users', users);
+  saveUser(username, null);
   renderUsersTab();
 }
 
