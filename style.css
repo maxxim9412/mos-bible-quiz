@@ -217,6 +217,15 @@ textarea { resize: vertical; }
 .result-actions button { flex: 1; }
 
 /* ── Leaderboard ── */
+.lb-snapshot-note {
+  font-size: .8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
 .lb-my-rank {
   background: linear-gradient(135deg, #312e81, #4c1d95);
   border-radius: 12px; padding: 18px 20px;

@@ -612,6 +612,27 @@ function renderAnswerReview(container, review) {
   });
 }
 
+/* Рейтинг участников текущей сессии — лучший результат каждого,
+   отсортировано по проценту и времени финиша. Используется и для живого
+   табло у админа, и для замороженного снимка, который сохраняется
+   участнику в момент завершения викторины. */
+function buildRanking(users, schedStart) {
+  const ranking = [];
+  Object.values(users).forEach(u => {
+    if (!u.results || !u.results.length) return;
+    const sessionResults = schedStart
+      ? u.results.filter(r => r.finishedAt && r.finishedAt >= schedStart)
+      : u.results;
+    if (!sessionResults.length) return;
+    const best = sessionResults.reduce((b, r) =>
+      r.pct > b.pct || (r.pct === b.pct && (r.finishedAt || 0) < (b.finishedAt || 0)) ? r : b
+    );
+    ranking.push({ username: u.username, score: best.score, total: best.total, pct: best.pct, elapsed: best.elapsed, date: best.date, finishedAt: best.finishedAt });
+  });
+  ranking.sort((a, b) => b.pct - a.pct || (a.finishedAt || 0) - (b.finishedAt || 0));
+  return ranking;
+}
+
 function finishQuiz(timeOut) {
   stopGlobalTimer();
   const total = quiz.questions.length;
@@ -663,6 +684,15 @@ function finishQuiz(timeOut) {
     if (freshUser) {
       const entry = { score, total, pct, elapsed, finishedAt, date: new Date().toLocaleDateString('ru-RU') };
       if (review) entry.review = review;
+
+      /* Снимок рейтинга ровно на момент завершения — чтобы участник видел
+         расклад таким, каким он был у него, а не то, как он меняется по
+         мере того, как отвечают остальные. Итоги оглашаются отдельно. */
+      const sched = getSchedule();
+      const schedStart = sched ? new Date(sched.start).getTime() : 0;
+      const usersWithMe = { ...users, [currentUser.username]: { ...freshUser, results: [entry, ...(freshUser.results || [])] } };
+      entry.leaderboardSnapshot = buildRanking(usersWithMe, schedStart);
+
       const updatedUser = { ...freshUser, results: [entry, ...(freshUser.results || [])] };
       saveUser(currentUser.username, updatedUser);
       currentUser = updatedUser;
@@ -680,23 +710,28 @@ document.getElementById('btn-leaderboard').addEventListener('click', showLeaderb
 document.getElementById('btn-back-lb').addEventListener('click', showHome);
 
 function showLeaderboard() {
-  const users = store.get('users') || {};
   const sched = getSchedule();
   const schedStart = sched ? new Date(sched.start).getTime() : 0;
+  const noteEl = document.getElementById('lb-snapshot-note');
 
-  const ranking = [];
-  Object.values(users).forEach(u => {
-    if (!u.results || !u.results.length) return;
-    const sessionResults = sched
-      ? u.results.filter(r => r.finishedAt && r.finishedAt >= schedStart)
-      : u.results;
-    if (!sessionResults.length) return;
-    const best = sessionResults.reduce((b, r) =>
-      r.pct > b.pct || (r.pct === b.pct && (r.finishedAt || 0) < (b.finishedAt || 0)) ? r : b
-    );
-    ranking.push({ username: u.username, ...best });
-  });
-  ranking.sort((a, b) => b.pct - a.pct || (a.finishedAt || 0) - (b.finishedAt || 0));
+  let ranking;
+  if (currentUser.isAdmin) {
+    /* Админу — живой, всегда актуальный рейтинг. */
+    ranking = buildRanking(store.get('users') || {}, schedStart);
+    noteEl.classList.add('hidden');
+  } else {
+    /* Участнику — замороженный на момент завершения снимок (сохранён в
+       finishQuiz), чтобы не было видно, как расклад меняется по мере
+       того, как отвечают остальные. Итоги объявляются отдельно. */
+    const res = getUserCurrentResult();
+    ranking = res?.leaderboardSnapshot || [];
+    if (res) {
+      noteEl.textContent = 'Рейтинг показан таким, каким он был на момент, когда вы завершили викторину. Итоги всех участников огласят на воскресном богослужении.';
+      noteEl.classList.remove('hidden');
+    } else {
+      noteEl.classList.add('hidden');
+    }
+  }
 
   const myEntry = ranking.find(r => r.username === currentUser.username);
   const myRank  = myEntry ? ranking.indexOf(myEntry) + 1 : null;
@@ -719,7 +754,10 @@ function showLeaderboard() {
   const list = document.getElementById('leaderboard-list');
   list.innerHTML = '';
   if (!ranking.length) {
-    list.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:24px">Пока никто не прошёл викторину.</p>';
+    const emptyText = !currentUser.isAdmin && !myEntry
+      ? 'Пройдите викторину, чтобы увидеть свой рейтинг.'
+      : 'Пока никто не прошёл викторину.';
+    list.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:24px">${emptyText}</p>`;
   } else {
     ranking.forEach((r, i) => {
       const isMe  = !currentUser.isAdmin && r.username === currentUser.username;
