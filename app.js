@@ -767,6 +767,93 @@ function showAdmin() {
 /* ── Questions tab ── */
 document.getElementById('btn-add-question').addEventListener('click', () => openModal(null));
 
+/* ── Массовый импорт вопросов текстом ── */
+document.getElementById('bulk-import-file').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { document.getElementById('bulk-import-text').value = reader.result; };
+  reader.readAsText(file, 'utf-8');
+  e.target.value = '';
+});
+
+/* Формат: абзацы через пустую строку. Первая строка абзаца — текст вопроса,
+   дальше варианты с "+" (верный) / "-" (остальные). Строки "#..." — заметки,
+   игнорируются, поэтому в начале файла можно оставлять инструкцию. */
+function parseQuestionsText(text) {
+  const questions = [];
+  const errors = [];
+  const blocks = text.split(/\r?\n\s*\r?\n/);
+
+  blocks.forEach(block => {
+    const lines = block.split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith('#'));
+    if (!lines.length) return;
+
+    const qText = lines[0];
+    const optionLines = lines.slice(1);
+    if (!optionLines.length) {
+      errors.push(`«${qText}» — нет вариантов ответа`);
+      return;
+    }
+
+    const options = [];
+    let answer = -1;
+    let badLine = null;
+    optionLines.forEach(line => {
+      if (line[0] !== '+' && line[0] !== '-') { badLine = line; return; }
+      if (line[0] === '+') answer = options.length;
+      options.push(line.slice(1).trim());
+    });
+
+    if (badLine) {
+      errors.push(`«${qText}» — строка без "+"/"-" в начале: "${badLine}"`);
+    } else if (answer === -1) {
+      errors.push(`«${qText}» — не отмечен правильный вариант (+)`);
+    } else if (options.length < 2) {
+      errors.push(`«${qText}» — меньше 2 вариантов ответа`);
+    } else if (options.length > 6) {
+      errors.push(`«${qText}» — больше 6 вариантов ответа (максимум 6)`);
+    } else if (options.some(o => !o)) {
+      errors.push(`«${qText}» — есть пустой вариант ответа`);
+    } else {
+      questions.push({ q: qText, options, answer, id: Date.now() + questions.length });
+    }
+  });
+
+  return { questions, errors };
+}
+
+document.getElementById('btn-bulk-import').addEventListener('click', () => {
+  const text  = document.getElementById('bulk-import-text').value;
+  const errEl = document.getElementById('bulk-import-error');
+  const okEl  = document.getElementById('bulk-import-success');
+  errEl.classList.add('hidden');
+  okEl.classList.add('hidden');
+
+  const { questions, errors } = parseQuestionsText(text);
+
+  if (errors.length) {
+    errEl.innerHTML = `Не импортировано, есть ошибки:<br>${errors.map(e => '• ' + e).join('<br>')}`;
+    errEl.classList.remove('hidden');
+    return;
+  }
+  if (!questions.length) {
+    errEl.textContent = 'Не найдено ни одного вопроса.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const current = getQuestions();
+  if (!confirm(`Заменить текущие вопросы (${current.length}) на новые (${questions.length})? Это действие нельзя отменить.`)) return;
+
+  saveQuestions(questions);
+  renderAdminList();
+  okEl.textContent = `✅ Импортировано вопросов: ${questions.length}`;
+  okEl.classList.remove('hidden');
+});
+
 function renderAdminList() {
   document.getElementById('admin-subtitle').value = store.get('quiz_subtitle') || '';
   const questions = getQuestions();

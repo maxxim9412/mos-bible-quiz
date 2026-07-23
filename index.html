@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260718" />
+  <link rel="stylesheet" href="style.css?v=20260723" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -221,6 +221,31 @@
             <button id="btn-subtitle-save" class="btn-primary">Сохранить</button>
             <p id="subtitle-saved" class="subtitle-saved hidden">✅ Сохранено</p>
           </div>
+          <details class="bulk-import">
+            <summary>📥 Массовый импорт вопросов (текстом)</summary>
+            <div class="bulk-import-body">
+              <p class="bulk-import-hint">
+                Один вопрос — один абзац. Первая строка — текст вопроса, дальше варианты:
+                «+» перед правильным, «-» перед остальными (от 2 до 6 штук). Между вопросами —
+                пустая строка. Импорт полностью заменит текущий список вопросов.
+              </p>
+              <div class="bulk-import-actions">
+                <a href="question-template.txt" download class="btn-secondary btn-file-label">📄 Скачать шаблон</a>
+                <label class="btn-secondary btn-file-label">
+                  📁 Загрузить файл
+                  <input type="file" id="bulk-import-file" accept=".txt" hidden />
+                </label>
+              </div>
+              <textarea id="bulk-import-text" rows="10" placeholder="Сколько дней Бог творил мир?
++ 6
+- 5
+- 7
+- 8"></textarea>
+              <p id="bulk-import-error" class="error hidden"></p>
+              <p id="bulk-import-success" class="subtitle-saved hidden"></p>
+              <button id="btn-bulk-import" class="btn-primary">Импортировать</button>
+            </div>
+          </details>
           <div class="atab-header">
             <span id="admin-q-total"></span>
             <button id="btn-add-question" class="btn-primary">+ Добавить вопрос</button>
@@ -311,9 +336,9 @@
 
   </div>
 
-  <script src="data.js?v=20260718"></script>
-  <script src="firebase-config.js?v=20260718"></script>
-  <script src="emailjs-config.js?v=20260718"></script>
-  <script src="app.js?v=20260718"></script>
+  <script src="data.js?v=20260723"></script>
+  <script src="firebase-config.js?v=20260723"></script>
+  <script src="emailjs-config.js?v=20260723"></script>
+  <script src="app.js?v=20260723"></script>
 </body>
 </html>

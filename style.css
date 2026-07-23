@@ -272,6 +272,43 @@ textarea { resize: vertical; }
   margin: 0;
 }
 
+/* ── Bulk import ── */
+.bulk-import {
+  background: var(--surface2);
+  border-radius: 10px;
+  padding: 4px 16px;
+  margin-bottom: 20px;
+}
+.bulk-import summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 600;
+  font-size: .9rem;
+  list-style: none;
+}
+.bulk-import summary::-webkit-details-marker { display: none; }
+.bulk-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+.bulk-import-hint {
+  font-size: .8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.bulk-import-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-file-label {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  font-size: .85rem;
+  padding: 9px 14px;
+}
+#bulk-import-text { font-family: ui-monospace, monospace; font-size: .85rem; }
+
 /* ── Forgot password ── */
 .btn-link {
   display: block;
