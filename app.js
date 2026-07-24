@@ -514,8 +514,15 @@ function shuffle(arr) {
   return a;
 }
 
+/* Перемешивает варианты ответа внутри одного вопроса, пересчитывая
+   индекс правильного варианта под новый порядок. */
+function shuffleOptions(q) {
+  const order = shuffle(q.options.map((_, i) => i));
+  return { ...q, options: order.map(i => q.options[i]), answer: order.indexOf(q.answer) };
+}
+
 function startQuiz() {
-  const questions = shuffle(getQuestions());
+  const questions = shuffle(getQuestions()).map(shuffleOptions);
   const duration = questions.length * 60;
   quiz = { questions, idx: 0, score: 0, answers: [], remaining: duration, duration, startTime: Date.now() };
   showScreen('quiz');
