@@ -1152,7 +1152,10 @@ function renderReportsTab() {
   });
 }
 
+let currentOpenReport = null;
+
 function openReport(rep) {
+  currentOpenReport = rep;
   document.getElementById('report-modal-title').textContent =
     `Отчёт: ${fmtDatetime(rep.start)} — ${fmtDatetime(rep.end)}`;
   const body = document.getElementById('report-modal-body');
@@ -1174,8 +1177,108 @@ function openReport(rep) {
       body.appendChild(row);
     });
   }
+  document.getElementById('btn-download-winner-slides').classList.toggle('hidden', !rep.results.length);
   document.getElementById('report-modal-overlay').classList.remove('hidden');
 }
+
+/* ── Слайды победителей (PNG, рисуются на <canvas>, без внешних библиотек) ── */
+const WINNER_SLIDE_THEMES = [
+  { medal: '🏆', label: '1 МЕСТО', accent: '#f5c518', glow: 'rgba(245,197,24,.35)' },
+  { medal: '🥈', label: '2 МЕСТО', accent: '#c7d2e0', glow: 'rgba(199,210,224,.28)' },
+  { medal: '🥉', label: '3 МЕСТО', accent: '#e08a4c', glow: 'rgba(224,138,76,.28)' },
+];
+
+function roundedRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawWinnerSlide(theme, result, periodLabel) {
+  const W = 1600, H = 900;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, '#0f172a');
+  bg.addColorStop(1, '#1e1b3a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const glow = ctx.createRadialGradient(W / 2, 300, 40, W / 2, 300, 420);
+  glow.addColorStop(0, theme.glow);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 6;
+  roundedRectPath(ctx, 30, 30, W - 60, H - 60, 28);
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+
+  ctx.font = '220px sans-serif';
+  ctx.fillText(theme.medal, W / 2, 340);
+
+  ctx.fillStyle = theme.accent;
+  ctx.font = '700 56px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(theme.label, W / 2, 430);
+
+  const maxNameWidth = W - 200;
+  let nameSize = 96;
+  ctx.font = `800 ${nameSize}px "Segoe UI", system-ui, sans-serif`;
+  while (ctx.measureText(result.username).width > maxNameWidth && nameSize > 40) {
+    nameSize -= 4;
+    ctx.font = `800 ${nameSize}px "Segoe UI", system-ui, sans-serif`;
+  }
+  ctx.fillStyle = '#f1f5f9';
+  ctx.fillText(result.username, W / 2, 560);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '48px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(`${result.score} из ${result.total} (${result.pct}%)`, W / 2, 640);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '32px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText('📖 Библейская викторина', W / 2, H - 90);
+  ctx.font = '26px "Segoe UI", system-ui, sans-serif';
+  ctx.fillText(periodLabel, W / 2, H - 50);
+
+  return canvas;
+}
+
+function downloadCanvas(canvas, filename) {
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }, 'image/png');
+}
+
+document.getElementById('btn-download-winner-slides').addEventListener('click', () => {
+  if (!currentOpenReport || !currentOpenReport.results.length) return;
+  const rep = currentOpenReport;
+  const periodLabel = `${fmtDatetime(rep.start)} — ${fmtDatetime(rep.end)}`;
+  rep.results.slice(0, 3).forEach((result, i) => {
+    setTimeout(() => {
+      const canvas = drawWinnerSlide(WINNER_SLIDE_THEMES[i], result, periodLabel);
+      const safeName = result.username.replace(/[\\/:*?"<>|]+/g, '_');
+      downloadCanvas(canvas, `${i + 1}-место-${safeName}.png`);
+    }, i * 350);
+  });
+});
 
 document.getElementById('report-modal-close').addEventListener('click', () =>
   document.getElementById('report-modal-overlay').classList.add('hidden'));
