@@ -925,6 +925,15 @@ function renderAdminList() {
   list.querySelectorAll('[data-del]').forEach(btn =>
     btn.addEventListener('click', () => {
       const qs = getQuestions();
+      /* Firebase не умеет хранить пустой список — [] на записи превращается
+         в null, что неотличимо от «вопросы ещё не настраивались», и
+         getQuestions() тогда молча подставляет DEFAULT_QUESTIONS. Поэтому
+         последний вопрос удалить нельзя — для полной замены есть массовый
+         импорт (он тоже отказывается сохранять 0 вопросов). */
+      if (qs.length <= 1) {
+        alert('Нельзя удалить последний вопрос — в списке должен остаться хотя бы один.\nЧтобы заменить все вопросы сразу, используйте массовый импорт.');
+        return;
+      }
       qs.splice(parseInt(btn.dataset.del), 1);
       saveQuestions(qs);
       renderAdminList();
