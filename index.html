@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260724-3" />
+  <link rel="stylesheet" href="style.css?v=20260905-2" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -60,6 +60,14 @@
           <button type="submit" class="btn-primary">Зарегистрироваться</button>
           <a href="https://t.me/maxxim9412" target="_blank" class="btn-link">Поддержка →</a>
         </form>
+
+        <!-- РОЗЫГРЫШ · публичная кнопка (временный модуль мероприятия).
+             hidden по умолчанию — показывается, только когда админ открыл
+             регистрацию (флаг raffle/open в Firebase). Fail-closed. -->
+        <div class="raffle-cta" hidden>
+          <button type="button" id="btn-open-raffle" class="btn-secondary raffle-cta-btn">🎉 Участвовать в розыгрыше</button>
+          <p class="raffle-cta-hint">Регистрация на розыгрыш призов — аккаунт викторины не нужен.</p>
+        </div>
       </div>
     </section>
 
@@ -89,6 +97,39 @@
             <p class="start-desc" id="forgot-success-text"></p>
           </div>
           <button id="btn-forgot-to-login" class="btn-primary" style="width:100%;margin-top:12px">Войти</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ЭКРАН: Регистрация на розыгрыш (временный модуль мероприятия) -->
+    <section id="screen-raffle" class="screen">
+      <div class="card">
+        <button id="btn-raffle-back" class="btn-link" style="align-self:flex-start">← Назад</button>
+        <h1 class="logo">🎉 Розыгрыш</h1>
+
+        <div id="raffle-form-block">
+          <p class="auth-subtitle">Заполните форму, чтобы участвовать в розыгрыше призов.</p>
+          <form id="form-raffle" novalidate>
+            <label>Фамилия и имя
+              <input type="text" id="raffle-fio" placeholder="Иванов Иван" autocomplete="name" required />
+            </label>
+            <label>Мобильный телефон
+              <input type="tel" id="raffle-phone" placeholder="+7 900 000-00-00" autocomplete="tel" inputmode="tel" required />
+            </label>
+            <label>Email
+              <input type="email" id="raffle-email" placeholder="example@mail.com" autocomplete="email" inputmode="email" required />
+            </label>
+            <p id="raffle-error" class="error hidden"></p>
+            <button type="submit" id="raffle-submit" class="btn-primary">Участвовать</button>
+          </form>
+          <p class="raffle-cta-hint" style="margin-top:12px">С одного номера телефона или почты — только одна регистрация.</p>
+        </div>
+
+        <div id="raffle-success" class="hidden" style="text-align:center;padding:12px 0">
+          <div style="font-size:3rem;margin-bottom:12px">✅</div>
+          <h2 style="margin-bottom:10px">Вы в розыгрыше!</h2>
+          <p class="start-desc">Заявка принята. Следите за розыгрышем на мероприятии.</p>
+          <button id="btn-raffle-done" class="btn-primary" style="width:100%;margin-top:16px">Готово</button>
         </div>
       </div>
     </section>
@@ -211,6 +252,7 @@
           <button class="admin-tab" data-atab="users">👥 Пользователи</button>
           <button class="admin-tab" data-atab="schedule">📅 Расписание</button>
           <button class="admin-tab" data-atab="reports">📊 Отчёты</button>
+          <button class="admin-tab" data-atab="raffle">🎉 Розыгрыш</button>
         </div>
 
         <!-- Вопросы -->
@@ -290,6 +332,24 @@
           </div>
           <div id="admin-reports-list" class="reports-list"></div>
         </div>
+
+        <!-- Розыгрыш (временный модуль мероприятия) -->
+        <div id="atab-raffle" class="admin-tab-content">
+          <div class="raffle-open-box">
+            <button id="btn-raffle-toggle" class="btn-primary">🔴 Регистрация закрыта — открыть</button>
+            <p class="hint-text" id="raffle-open-hint">Пока закрыто: кнопка «Участвовать в розыгрыше» у гостей скрыта.</p>
+          </div>
+          <div class="atab-header">
+            <span id="admin-raffle-total"></span>
+          </div>
+          <div class="raffle-admin-actions">
+            <button id="btn-raffle-copy" class="btn-primary">📋 Скопировать ФИО для барабана</button>
+            <button id="btn-raffle-csv" class="btn-secondary">⬇️ Скачать CSV</button>
+            <button id="btn-raffle-clear" class="btn-danger">🗑️ Очистить список</button>
+          </div>
+          <p class="hint-text">«Скопировать ФИО» — готовый список для вставки в барабан-рандомайзер (по одному имени в строке).</p>
+          <div id="admin-raffle-list" class="admin-list"></div>
+        </div>
       </div>
     </section>
 
@@ -338,9 +398,9 @@
 
   </div>
 
-  <script src="data.js?v=20260724-3"></script>
-  <script src="firebase-config.js?v=20260724-3"></script>
-  <script src="emailjs-config.js?v=20260724-3"></script>
-  <script src="app.js?v=20260724-3"></script>
+  <script src="data.js?v=20260905-2"></script>
+  <script src="firebase-config.js?v=20260905-2"></script>
+  <script src="emailjs-config.js?v=20260905-2"></script>
+  <script src="app.js?v=20260905-2"></script>
 </body>
 </html>

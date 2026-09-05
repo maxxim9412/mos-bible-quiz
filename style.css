@@ -510,3 +510,38 @@ textarea { resize: vertical; }
   .schedule-actions { flex-direction: column; }
   .admin-tab { font-size: .8rem; padding: 8px 4px; }
 }
+
+/* ══ РОЗЫГРЫШ · временный модуль мероприятия ══
+   Чтобы убрать: удалить этот блок + блок в app.js + разметку в index.html. */
+.raffle-cta {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--surface2);
+  text-align: center;
+}
+.raffle-cta-btn { width: 100%; }
+.raffle-cta-hint {
+  margin-top: 8px;
+  font-size: .82rem;
+  color: var(--text-muted);
+}
+.raffle-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 12px;
+}
+.raffle-admin-actions .btn-primary,
+.raffle-admin-actions .btn-secondary,
+.raffle-admin-actions .btn-danger { flex: 1 1 auto; }
+
+.raffle-open-box {
+  background: var(--bg);
+  border: 1px solid var(--surface2);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+.raffle-open-box .btn-primary,
+.raffle-open-box .btn-danger { width: 100%; }
+.raffle-open-box .hint-text { margin: 8px 0 0; }
