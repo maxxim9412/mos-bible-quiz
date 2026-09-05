@@ -1452,12 +1452,28 @@ function getRaffleEntrants() {
   return store.get(firebaseDB ? 'raffle_entrants_cache' : 'raffle_local') || {};
 }
 
+/* ── QR-код на странице розыгрыша (ведёт на сам сайт) ── */
+const RAFFLE_SITE_URL = 'https://bible-quiz.online';
+let raffleQrDone = false;
+function ensureRaffleQR() {
+  if (raffleQrDone || typeof QRCode === 'undefined') return;
+  const el = document.getElementById('raffle-qr');
+  if (!el) return;
+  new QRCode(el, {
+    text: RAFFLE_SITE_URL, width: 190, height: 190,
+    colorDark: '#0f172a', colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+  raffleQrDone = true;
+}
+
 /* ── Открытие/закрытие экрана розыгрыша ── */
 function openRaffleScreen() {
   document.getElementById('form-raffle').reset();
   document.getElementById('raffle-error').classList.add('hidden');
   document.getElementById('raffle-form-block').classList.remove('hidden');
   document.getElementById('raffle-success').classList.add('hidden');
+  ensureRaffleQR();
   showScreen('raffle');
 }
 document.getElementById('btn-open-raffle').addEventListener('click', openRaffleScreen);

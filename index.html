@@ -5,12 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260905-2" />
+  <link rel="stylesheet" href="style.css?v=20260905-3" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <!-- EmailJS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <!-- QR-код (для страницы розыгрыша) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
   <!-- Экран загрузки (пока Firebase инициализируется) -->
@@ -108,6 +110,10 @@
         <h1 class="logo">🎉 Розыгрыш</h1>
 
         <div id="raffle-form-block">
+          <div class="raffle-qr-wrap">
+            <div id="raffle-qr" aria-label="QR-код на сайт"></div>
+            <p class="raffle-qr-cap">Наведите камеру телефона на код — откроется этот сайт</p>
+          </div>
           <p class="auth-subtitle">Заполните форму, чтобы участвовать в розыгрыше призов.</p>
           <form id="form-raffle" novalidate>
             <label>Фамилия и имя
@@ -398,9 +404,9 @@
 
   </div>
 
-  <script src="data.js?v=20260905-2"></script>
-  <script src="firebase-config.js?v=20260905-2"></script>
-  <script src="emailjs-config.js?v=20260905-2"></script>
-  <script src="app.js?v=20260905-2"></script>
+  <script src="data.js?v=20260905-3"></script>
+  <script src="firebase-config.js?v=20260905-3"></script>
+  <script src="emailjs-config.js?v=20260905-3"></script>
+  <script src="app.js?v=20260905-3"></script>
 </body>
 </html>
