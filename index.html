@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260905-6" />
+  <link rel="stylesheet" href="style.css?v=20260905-7" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -394,6 +394,15 @@
             <button id="btn-raffle-clear" class="btn-danger">🗑️ Очистить список</button>
           </div>
           <p class="hint-text">«Скопировать ФИО» — готовый список для вставки в барабан-рандомайзер (по одному имени в строке).</p>
+          <details class="bulk-import">
+            <summary>🧪 Добавить участников списком (для теста)</summary>
+            <div class="bulk-import-body">
+              <p class="bulk-import-hint">По одному имени в строке. Добавятся как участники с порядковыми номерами (без телефона и почты). Удобно проверить барабан на многих людях.</p>
+              <textarea id="raffle-bulk-text" rows="6" placeholder="Иван Петров&#10;Мария Иванова&#10;Пётр Сидоров"></textarea>
+              <p id="raffle-bulk-msg" class="subtitle-saved hidden"></p>
+              <button id="btn-raffle-bulk" class="btn-primary">Добавить в список</button>
+            </div>
+          </details>
           <div id="admin-raffle-list" class="admin-list"></div>
         </div>
       </div>
@@ -444,9 +453,9 @@
 
   </div>
 
-  <script src="data.js?v=20260905-6"></script>
-  <script src="firebase-config.js?v=20260905-6"></script>
-  <script src="emailjs-config.js?v=20260905-6"></script>
-  <script src="app.js?v=20260905-6"></script>
+  <script src="data.js?v=20260905-7"></script>
+  <script src="firebase-config.js?v=20260905-7"></script>
+  <script src="emailjs-config.js?v=20260905-7"></script>
+  <script src="app.js?v=20260905-7"></script>
 </body>
 </html>

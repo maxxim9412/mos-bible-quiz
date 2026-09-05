@@ -1631,6 +1631,53 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
   renderRaffleTab();
 });
 
+/* ── Админ: массовое добавление участников списком (для теста) ──
+   Синтетический ключ вместо телефона (нет тел./почты), порядковые номера
+   продолжают счётчик raffle/seq. Одна атомарная запись update(). */
+document.getElementById('btn-raffle-bulk').addEventListener('click', async () => {
+  const ta  = document.getElementById('raffle-bulk-text');
+  const msg = document.getElementById('raffle-bulk-msg');
+  const btn = document.getElementById('btn-raffle-bulk');
+  const names = ta.value.split(/\r?\n/).map(s => s.trim().replace(/\s+/g, ' ')).filter(Boolean);
+  msg.classList.add('hidden');
+  if (!names.length) { msg.textContent = 'Пусто — вставьте имена по одному в строке.'; msg.classList.remove('hidden'); return; }
+
+  btn.disabled = true; btn.textContent = 'Добавляю…';
+  try {
+    if (firebaseDB) {
+      const sRes  = await firebaseDB.ref(RAFFLE_SEQ).transaction(cur => (cur || 0) + names.length);
+      const start = sRes.snapshot.val() - names.length + 1;
+      const updates = {};
+      names.forEach((fio, i) => {
+        const key = 't' + Date.now().toString(36) + '_' + i;
+        updates[RAFFLE_ENTRANTS + '/' + key] =
+          { fio, phone: key, phoneRaw: '—', email: '', at: new Date().toISOString(), num: start + i, test: true };
+      });
+      await firebaseDB.ref().update(updates);
+    } else {
+      const local = store.get('raffle_local') || {};
+      let seq = store.get('raffle_seq_local') || 0;
+      names.forEach((fio, i) => {
+        seq++;
+        const key = 't' + Date.now().toString(36) + '_' + i + Math.floor(Math.random() * 1000);
+        local[key] = { fio, phone: key, phoneRaw: '—', email: '', at: new Date().toISOString(), num: seq, test: true };
+      });
+      store.set('raffle_seq_local', seq);
+      store.set('raffle_local', local);
+    }
+    ta.value = '';
+    msg.textContent = `✅ Добавлено участников: ${names.length}`;
+    msg.classList.remove('hidden');
+    renderRaffleTab();
+  } catch (err) {
+    console.error('Ошибка массового добавления:', err);
+    msg.textContent = 'Не удалось добавить. Попробуйте ещё раз.';
+    msg.classList.remove('hidden');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Добавить в список';
+  }
+});
+
 /* ══════════════════════════════════════════════════════════════════
    БАРАБАН РОЗЫГРЫША — админский экран (#screen-draw)
    Открывается ТОЛЬКО из админки (кнопка «Запустить барабан»). Гости его
