@@ -254,17 +254,6 @@ function setupRealtimeListeners() {
       if (t?.classList.contains('active')) renderRaffleTab();
     }
   });
-
-  /* Розыгрыш: флаг «регистрация открыта» → живо показать/скрыть кнопку у всех */
-  firebaseDB.ref(RAFFLE_OPEN).on('value', snap => {
-    raffleOpen = snap.val() === true;
-    localStorage.setItem('raffle_open_cache', JSON.stringify(raffleOpen));
-    applyRaffleVisibility();
-    if (currentUser?.isAdmin) {
-      const t = document.getElementById('atab-raffle');
-      if (t?.classList.contains('active')) renderRaffleTab();
-    }
-  });
 }
 
 /* ══════════════════════════════════════
@@ -333,7 +322,7 @@ document.getElementById('btn-logout').addEventListener('click', () => {
   stopGlobalTimer();
   currentUser = null;
   localStorage.removeItem('quiz_session');
-  showScreen('auth');
+  showScreen('landing');
 });
 
 /* ══════════════════════════════════════
@@ -1411,23 +1400,7 @@ document.getElementById('btn-subtitle-save').addEventListener('click', () => {
 ══════════════════════════════════════════════════════════════════ */
 const RAFFLE_ENTRANTS = 'raffle/entrants';
 const RAFFLE_EMAILS   = 'raffle/emails';
-const RAFFLE_OPEN     = 'raffle/open';
-
-/* Флаг «регистрация открыта». По умолчанию false (fail-closed): пока админ
-   не откроет, кнопка у гостей скрыта и форма не принимает заявки. */
-let raffleOpen = (() => { try { return store.get('raffle_open_cache') === true; } catch { return false; } })();
-
-/* Показать/скрыть публичную кнопку в зависимости от флага. Вызывается при
-   загрузке и на каждое изменение raffle/open (живо, с любого устройства). */
-function applyRaffleVisibility() {
-  const cta = document.querySelector('.raffle-cta');
-  if (cta) cta.hidden = !raffleOpen;
-  /* Если регистрацию закрыли, а гость сейчас на экране розыгрыша — вернуть на вход. */
-  if (!raffleOpen && !currentUser?.isAdmin &&
-      document.getElementById('screen-raffle')?.classList.contains('active')) {
-    showScreen('auth');
-  }
-}
+const RAFFLE_SEQ      = 'raffle/seq';   // счётчик порядковых номеров участников
 
 /* Телефон → только цифры; 8XXXXXXXXXX и 7XXXXXXXXXX сводим к одному виду,
    чтобы «8 900…» и «+7 900…» считались одним номером. */
@@ -1452,8 +1425,8 @@ function getRaffleEntrants() {
   return store.get(firebaseDB ? 'raffle_entrants_cache' : 'raffle_local') || {};
 }
 
-/* ── QR-код на странице розыгрыша (ведёт на сам сайт) ── */
-const RAFFLE_SITE_URL = 'https://bible-quiz.online';
+/* ── QR-код на странице розыгрыша (ведёт СРАЗУ на регистрацию) ── */
+const RAFFLE_SITE_URL = 'https://bible-quiz.online/#roz';
 let raffleQrDone = false;
 function ensureRaffleQR() {
   if (raffleQrDone || typeof QRCode === 'undefined') return;
@@ -1467,18 +1440,23 @@ function ensureRaffleQR() {
   raffleQrDone = true;
 }
 
-/* ── Открытие/закрытие экрана розыгрыша ── */
+/* ── Экран розыгрыша (регистрация всегда открыта) ── */
 function openRaffleScreen() {
   document.getElementById('form-raffle').reset();
   document.getElementById('raffle-error').classList.add('hidden');
   document.getElementById('raffle-form-block').classList.remove('hidden');
   document.getElementById('raffle-success').classList.add('hidden');
+  document.getElementById('raffle-num').textContent = '';
   ensureRaffleQR();
   showScreen('raffle');
 }
-document.getElementById('btn-open-raffle').addEventListener('click', openRaffleScreen);
-document.getElementById('btn-raffle-back').addEventListener('click', () => showScreen('auth'));
-document.getElementById('btn-raffle-done').addEventListener('click', () => showScreen('auth'));
+
+/* ── Стартовый экран: выбор Викторина / Розыгрыш ── */
+document.getElementById('btn-go-quiz').addEventListener('click', () => showScreen('auth'));
+document.getElementById('btn-go-raffle').addEventListener('click', openRaffleScreen);
+document.getElementById('btn-auth-back').addEventListener('click', () => showScreen('landing'));
+document.getElementById('btn-raffle-back').addEventListener('click', () => showScreen('landing'));
+document.getElementById('btn-raffle-done').addEventListener('click', () => showScreen('landing'));
 
 function showRaffleError(msg) {
   const el = document.getElementById('raffle-error');
@@ -1495,7 +1473,6 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
   const phone = normPhone(document.getElementById('raffle-phone').value);
 
   document.getElementById('raffle-error').classList.add('hidden');
-  if (!raffleOpen)           return showRaffleError('Регистрация на розыгрыш сейчас закрыта.');
   if (fio.length < 3)        return showRaffleError('Укажите фамилию и имя.');
   if (phone.length < 10)     return showRaffleError('Проверьте номер телефона.');
   if (!isValidEmail(email))  return showRaffleError('Проверьте адрес почты.');
@@ -1511,6 +1488,7 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
   btn.disabled = true;
   btn.textContent = 'Отправляем…';
   try {
+    let num = null;
     if (firebaseDB) {
       /* 1) Телефон — первичный ключ. Транзакция: пишем, только если ячейка
             пуста; иначе номер уже участвует. Это и есть защита от гонки. */
@@ -1526,16 +1504,27 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
         await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey).remove();
         return showRaffleError('Эта почта уже участвует в розыгрыше.');
       }
+
+      /* 3) Порядковый номер участника. Транзакция на счётчике raffle/seq
+            выдаёт следующий номер (без дырок и без гонок — назначаем только
+            после успешной проверки уникальности). */
+      const sRes = await firebaseDB.ref(RAFFLE_SEQ).transaction(cur => (cur || 0) + 1);
+      num = sRes.snapshot.val();
+      await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey + '/num').set(num);
     } else {
       /* Локальный режим без Firebase (офлайн-тест). */
       const local = store.get('raffle_local') || {};
       if (local[pKey]) return showRaffleError('Этот номер телефона уже участвует в розыгрыше.');
       if (Object.values(local).some(x => x.email.toLowerCase() === email.toLowerCase()))
         return showRaffleError('Эта почта уже участвует в розыгрыше.');
+      num = (store.get('raffle_seq_local') || 0) + 1;
+      store.set('raffle_seq_local', num);
+      entrant.num = num;
       local[pKey] = entrant;
       store.set('raffle_local', local);
     }
-    /* Успех */
+    /* Успех — показываем участнику его номер */
+    document.getElementById('raffle-num').textContent = num != null ? String(num) : '';
     document.getElementById('raffle-form-block').classList.add('hidden');
     document.getElementById('raffle-success').classList.remove('hidden');
   } catch (err) {
@@ -1547,37 +1536,10 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
   }
 });
 
-/* ── Админ: открыть/закрыть регистрацию (флаг raffle/open) ── */
-document.getElementById('btn-raffle-toggle').addEventListener('click', () => {
-  const open = !raffleOpen;
-  if (open && !confirm('Открыть регистрацию на розыгрыш для всех гостей сайта?')) return;
-  if (firebaseDB) {
-    firebaseDB.ref(RAFFLE_OPEN).set(open).catch(console.error);
-    /* Экран обновит realtime-listener на raffle/open. */
-  } else {
-    raffleOpen = open;
-    localStorage.setItem('raffle_open_cache', JSON.stringify(open));
-    applyRaffleVisibility();
-    renderRaffleTab();
-  }
-});
-
-/* ── Админ: список участников розыгрыша ── */
+/* ── Админ: список участников розыгрыша (сортировка по номеру) ── */
 function renderRaffleTab() {
-  const tgl  = document.getElementById('btn-raffle-toggle');
-  const hint = document.getElementById('raffle-open-hint');
-  if (raffleOpen) {
-    tgl.textContent = '🟢 Регистрация ОТКРЫТА — закрыть';
-    tgl.className = 'btn-danger';
-    hint.textContent = 'Открыто: кнопка «Участвовать в розыгрыше» видна всем гостям сайта.';
-  } else {
-    tgl.textContent = '🔴 Регистрация закрыта — открыть';
-    tgl.className = 'btn-primary';
-    hint.textContent = 'Пока закрыто: кнопка «Участвовать в розыгрыше» у гостей скрыта.';
-  }
-
   const arr = Object.values(getRaffleEntrants()).filter(Boolean)
-    .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+    .sort((a, b) => (a.num || 1e9) - (b.num || 1e9) || new Date(a.at || 0) - new Date(b.at || 0));
   document.getElementById('admin-raffle-total').textContent = `Участников розыгрыша: ${arr.length}`;
 
   const list = document.getElementById('admin-raffle-list');
@@ -1592,7 +1554,7 @@ function renderRaffleTab() {
     row.className = 'user-row';
     row.innerHTML = `
       <div class="user-info">
-        <div class="user-name">${escHtml(e.fio)}</div>
+        <div class="user-name">${e.num != null ? '№' + e.num + ' · ' : ''}${escHtml(e.fio)}</div>
         <div class="user-detail">📱 ${escHtml(e.phoneRaw || e.phone)} · 📧 ${escHtml(e.email)} · ${when}</div>
       </div>`;
     list.appendChild(row);
@@ -1635,11 +1597,11 @@ function csvCell(v) {
 }
 document.getElementById('btn-raffle-csv').addEventListener('click', () => {
   const arr = Object.values(getRaffleEntrants()).filter(Boolean)
-    .sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
+    .sort((a, b) => (a.num || 1e9) - (b.num || 1e9) || new Date(a.at || 0) - new Date(b.at || 0));
   if (!arr.length) { flashBtn('btn-raffle-csv', 'Список пуст'); return; }
   const rows = [['№', 'ФИО', 'Телефон', 'Email', 'Дата регистрации']];
   arr.forEach((e, i) => rows.push([
-    i + 1, e.fio, e.phoneRaw || e.phone, e.email,
+    e.num != null ? e.num : i + 1, e.fio, e.phoneRaw || e.phone, e.email,
     e.at ? new Date(e.at).toLocaleString('ru-RU') : '',
   ]));
   const csv = '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
@@ -1657,12 +1619,14 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
   const n = Object.values(getRaffleEntrants()).filter(Boolean).length;
   if (!confirm(`Удалить всех участников розыгрыша (${n})? Это действие нельзя отменить.`)) return;
   if (firebaseDB) {
-    /* Чистим только участников и индекс почт; флаг raffle/open не трогаем. */
+    /* Чистим участников, индекс почт и счётчик номеров — новый список с №1. */
     await firebaseDB.ref(RAFFLE_ENTRANTS).remove().catch(console.error);
     await firebaseDB.ref(RAFFLE_EMAILS).remove().catch(console.error);
+    await firebaseDB.ref(RAFFLE_SEQ).remove().catch(console.error);
     localStorage.setItem('raffle_entrants_cache', '{}');
   } else {
     store.set('raffle_local', {});
+    store.set('raffle_seq_local', 0);
   }
   renderRaffleTab();
 });
@@ -1697,8 +1661,6 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
         localStorage.setItem('quiz_reports', JSON.stringify(fbToArray(data.quiz_reports)));
       if (data.raffle && data.raffle.entrants)
         localStorage.setItem('raffle_entrants_cache', JSON.stringify(data.raffle.entrants));
-      raffleOpen = !!(data.raffle && data.raffle.open === true);
-      localStorage.setItem('raffle_open_cache', JSON.stringify(raffleOpen));
 
       setupRealtimeListeners();
     } catch (err) {
@@ -1714,7 +1676,12 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
   if (overlay) overlay.style.display = 'none';
 
   loadSubtitle();
-  applyRaffleVisibility();
+
+  /* QR ведёт на #roz → сразу открываем регистрацию на розыгрыш */
+  if (location.hash.replace('#', '').toLowerCase() === 'roz') {
+    openRaffleScreen();
+    return;
+  }
 
   const session = localStorage.getItem('quiz_session');
   if (session === ADMIN_USER) {
@@ -1724,5 +1691,5 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
     const users = store.get('users') || {};
     if (users[session]) { loginUser(users[session]); return; }
   }
-  showScreen('auth');
+  showScreen('landing');
 })();

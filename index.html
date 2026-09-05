@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260905-3" />
+  <link rel="stylesheet" href="style.css?v=20260905-4" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -23,9 +23,28 @@
 
   <div id="app">
 
-    <!-- ЭКРАН: Авторизация -->
-    <section id="screen-auth" class="screen active">
+    <!-- ЭКРАН: Стартовый выбор (Викторина / Розыгрыш) -->
+    <section id="screen-landing" class="screen active">
       <div class="card">
+        <h1 class="logo">✝️ Библейская<br>викторина</h1>
+        <p class="auth-subtitle">Выберите, что открыть</p>
+        <div class="landing-choice">
+          <button id="btn-go-quiz" class="landing-btn">
+            <span class="landing-ico">📖</span>
+            <span class="landing-txt"><b>Викторина</b><small>Проверить знание Библии</small></span>
+          </button>
+          <button id="btn-go-raffle" class="landing-btn">
+            <span class="landing-ico">🎉</span>
+            <span class="landing-txt"><b>Розыгрыш</b><small>Регистрация на розыгрыш призов</small></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ЭКРАН: Авторизация -->
+    <section id="screen-auth" class="screen">
+      <div class="card">
+        <button id="btn-auth-back" class="btn-link" style="align-self:flex-start">← Назад</button>
         <h1 class="logo">✝️ Библейская<br>викторина</h1>
         <p id="auth-subtitle" class="auth-subtitle"></p>
         <div class="tabs">
@@ -63,13 +82,6 @@
           <a href="https://t.me/maxxim9412" target="_blank" class="btn-link">Поддержка →</a>
         </form>
 
-        <!-- РОЗЫГРЫШ · публичная кнопка (временный модуль мероприятия).
-             hidden по умолчанию — показывается, только когда админ открыл
-             регистрацию (флаг raffle/open в Firebase). Fail-closed. -->
-        <div class="raffle-cta" hidden>
-          <button type="button" id="btn-open-raffle" class="btn-secondary raffle-cta-btn">🎉 Участвовать в розыгрыше</button>
-          <p class="raffle-cta-hint">Регистрация на розыгрыш призов — аккаунт викторины не нужен.</p>
-        </div>
       </div>
     </section>
 
@@ -134,6 +146,10 @@
         <div id="raffle-success" class="hidden" style="text-align:center;padding:12px 0">
           <div style="font-size:3rem;margin-bottom:12px">✅</div>
           <h2 style="margin-bottom:10px">Вы в розыгрыше!</h2>
+          <div class="raffle-num-box">
+            <span class="raffle-num-label">Ваш номер участника</span>
+            <span id="raffle-num" class="raffle-num-value">—</span>
+          </div>
           <p class="start-desc">Заявка принята. Следите за розыгрышем на мероприятии.</p>
           <button id="btn-raffle-done" class="btn-primary" style="width:100%;margin-top:16px">Готово</button>
         </div>
@@ -341,10 +357,6 @@
 
         <!-- Розыгрыш (временный модуль мероприятия) -->
         <div id="atab-raffle" class="admin-tab-content">
-          <div class="raffle-open-box">
-            <button id="btn-raffle-toggle" class="btn-primary">🔴 Регистрация закрыта — открыть</button>
-            <p class="hint-text" id="raffle-open-hint">Пока закрыто: кнопка «Участвовать в розыгрыше» у гостей скрыта.</p>
-          </div>
           <div class="atab-header">
             <span id="admin-raffle-total"></span>
           </div>
@@ -404,9 +416,9 @@
 
   </div>
 
-  <script src="data.js?v=20260905-3"></script>
-  <script src="firebase-config.js?v=20260905-3"></script>
-  <script src="emailjs-config.js?v=20260905-3"></script>
-  <script src="app.js?v=20260905-3"></script>
+  <script src="data.js?v=20260905-4"></script>
+  <script src="firebase-config.js?v=20260905-4"></script>
+  <script src="emailjs-config.js?v=20260905-4"></script>
+  <script src="app.js?v=20260905-4"></script>
 </body>
 </html>
