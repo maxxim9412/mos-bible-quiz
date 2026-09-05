@@ -1631,6 +1631,172 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
   renderRaffleTab();
 });
 
+/* ══════════════════════════════════════════════════════════════════
+   БАРАБАН РОЗЫГРЫША — админский экран (#screen-draw)
+   Открывается ТОЛЬКО из админки (кнопка «Запустить барабан»). Гости его
+   не видят и запустить не могут (openDrawScreen проверяет isAdmin, ссылки
+   на экран нет). Крутит зарегистрированных участников (raffle/entrants),
+   победители не повторяются (список в localStorage). Для показа в ProPresenter.
+══════════════════════════════════════════════════════════════════ */
+(function () {
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let drawDur = (() => { const v = parseFloat(localStorage.getItem('raffle_draw_dur')); return (v >= 2 && v <= 15) ? v : 5; })();
+  let winners = (() => { try { return JSON.parse(localStorage.getItem('raffle_winners')) || []; } catch { return []; } })();
+  let spinning = false;
+
+  const stage   = document.querySelector('.draw-stage');
+  const strip   = document.getElementById('draw-strip');
+  const drum    = document.getElementById('draw-drum');
+  const spinBtn = document.getElementById('btn-draw-spin');
+
+  function saveWinners() { try { localStorage.setItem('raffle_winners', JSON.stringify(winners)); } catch {} }
+  function entrantsArr() {
+    return Object.values(getRaffleEntrants()).filter(Boolean).sort((a, b) => (a.num || 1e9) - (b.num || 1e9));
+  }
+  function pool() { return entrantsArr().filter(e => winners.indexOf(e.phone) < 0); }
+
+  function sizeFor(names) {
+    const itemH = Math.min(200, Math.max(84, Math.round(window.innerHeight * 0.16)));
+    const drumW = drum.clientWidth || Math.min(1120, window.innerWidth * 0.94);
+    let longest = 1;
+    names.forEach(n => { const L = (n || '').length; if (L > longest) longest = L; });
+    let font = Math.min(itemH * 0.6, (drumW - 56) / (longest * 0.56));
+    font = Math.max(20, font);
+    document.documentElement.style.setProperty('--draw-item-h', itemH + 'px');
+    document.documentElement.style.setProperty('--draw-item-font', font + 'px');
+  }
+  function itemHpx() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--draw-item-h')) || 150; }
+
+  function renderStrip(seq) {
+    sizeFor(seq);
+    strip.innerHTML = '';
+    seq.forEach(txt => { const d = document.createElement('div'); d.className = 'draw-item'; d.textContent = txt; strip.appendChild(d); });
+  }
+
+  function updateCounts() {
+    document.getElementById('draw-total').textContent = entrantsArr().length;
+    document.getElementById('draw-remaining').textContent = pool().length;
+  }
+
+  function renderIdle() {
+    stage.classList.remove('win');
+    document.getElementById('draw-winline').textContent = '🎉 Победитель 🎉';
+    const p = pool();
+    if (!p.length) {
+      const txt = entrantsArr().length ? 'Все разыграны' : 'Нет участников';
+      sizeFor([txt]); strip.innerHTML = '';
+      const d = document.createElement('div'); d.className = 'draw-item'; d.style.opacity = '.7'; d.textContent = txt; strip.appendChild(d);
+      strip.style.transition = 'none'; strip.style.transform = 'translateY(' + itemHpx() + 'px)';
+      spinBtn.disabled = true; spinBtn.textContent = txt;
+      return;
+    }
+    const names = p.map(e => e.fio);
+    const seq = []; for (let i = 0; i < Math.max(5, names.length); i++) seq.push(names[i % names.length]);
+    renderStrip(seq);
+    strip.style.transition = 'none'; strip.style.transform = 'translateY(0px)';
+    spinBtn.disabled = false; spinBtn.textContent = 'Крутить барабан';
+  }
+
+  function openDrawScreen() {
+    if (!currentUser || !currentUser.isAdmin) return;  // защита: только админ
+    updateCounts(); renderIdle(); showScreen('draw');
+  }
+
+  function spin() {
+    const p = pool();
+    if (spinning || !p.length) return;
+    spinning = true; stage.classList.remove('win'); spinBtn.disabled = true;
+    const names = p.map(e => e.fio);
+    const winner = p[(Math.random() * p.length) | 0];
+    const reps = Math.max(26, names.length * 3);
+    const seq = []; for (let i = 0; i < reps; i++) seq.push(names[(Math.random() * names.length) | 0]);
+    const targetIndex = seq.length; seq.push(winner.fio);
+    for (let j = 0; j < 4; j++) seq.push(names[(Math.random() * names.length) | 0]);
+    renderStrip(seq);
+    const itemH = itemHpx();
+    const finalY = -(targetIndex - 1) * itemH;
+    const winItem = strip.children[targetIndex];
+    strip.style.transition = 'none'; strip.style.transform = 'translateY(0px)'; void strip.offsetHeight;
+    const dur = (reduce ? 1.1 : Math.max(1.1, drawDur)) * 1000;
+    const t0 = performance.now();
+    function frame(now) {
+      const pr = (now - t0) / dur;
+      if (pr >= 1) { strip.style.transform = 'translateY(' + finalY + 'px)'; land(winner, winItem); return; }
+      const e = 1 - Math.pow(1 - pr, 4);   // easeOutQuart: быстро → плавно медленнее
+      strip.style.transform = 'translateY(' + (finalY * e) + 'px)';
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function land(winner, winItem) {
+    spinning = false; stage.classList.add('win');
+    if (winItem) winItem.classList.add('win');
+    document.getElementById('draw-winline').textContent =
+      (winner.num != null ? '№' + winner.num + ' — ' : '') + '🎉 Победитель 🎉';
+    if (!reduce) burst();
+    if (winners.indexOf(winner.phone) < 0) { winners.push(winner.phone); saveWinners(); }
+    updateCounts();
+    spinBtn.disabled = pool().length === 0;
+    spinBtn.textContent = pool().length === 0 ? 'Все разыграны' : 'Крутить ещё';
+  }
+
+  /* конфетти */
+  const cv = document.getElementById('draw-confetti'), ctx = cv.getContext('2d');
+  let parts = [], raf = null;
+  function fit() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); }
+  fit();
+  addEventListener('resize', () => { fit(); if (!spinning && document.getElementById('screen-draw').classList.contains('active')) renderIdle(); });
+  const COL = ['#FFD24A', '#FF8A3D', '#F472B6', '#2CE0C6', '#9B6BFF', '#FFFFFF'];
+  function burst() {
+    const cx = innerWidth / 2, cy = innerHeight * 0.44;
+    for (let i = 0; i < 180; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 6 + Math.random() * 15;
+      parts.push({ x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 7, g: 0.28 + Math.random() * 0.16, life: 0, max: 95 + Math.random() * 55, w: 6 + Math.random() * 8, h: 9 + Math.random() * 11, rot: Math.random() * 6, vr: (Math.random() - .5) * .4, c: COL[i % COL.length] });
+    }
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+  function tick() {
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]; p.life++; p.vy += p.g; p.x += p.vx; p.y += p.vy; p.vx *= .99; p.rot += p.vr;
+      ctx.save(); ctx.globalAlpha = Math.max(0, 1 - p.life / p.max); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+      if (p.life >= p.max || p.y > innerHeight + 40) parts.splice(i, 1);
+    }
+    if (parts.length) raf = requestAnimationFrame(tick); else { ctx.clearRect(0, 0, innerWidth, innerHeight); raf = null; }
+  }
+
+  /* управление */
+  spinBtn.addEventListener('click', spin);
+  document.getElementById('btn-draw-exit').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    showAdmin();
+  });
+  document.getElementById('btn-draw-fs').addEventListener('click', () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  });
+  document.getElementById('btn-draw-reset').addEventListener('click', () => {
+    if (confirm('Сбросить список победителей? Все участники снова смогут выиграть.')) { winners = []; saveWinners(); updateCounts(); renderIdle(); }
+  });
+
+  /* запуск из админки + регулировка времени */
+  document.getElementById('btn-launch-draw').addEventListener('click', openDrawScreen);
+  const durEl = document.getElementById('draw-dur'), durVal = document.getElementById('draw-dur-val');
+  durEl.value = drawDur; durVal.textContent = drawDur.toFixed(1);
+  durEl.addEventListener('input', function () {
+    drawDur = parseFloat(this.value); durVal.textContent = drawDur.toFixed(1);
+    try { localStorage.setItem('raffle_draw_dur', String(drawDur)); } catch {}
+  });
+
+  addEventListener('keydown', e => {
+    if (!document.getElementById('screen-draw').classList.contains('active')) return;
+    if (/input|textarea/i.test((e.target.tagName || ''))) return;
+    if (e.code === 'Space') { e.preventDefault(); spin(); }
+    else if (e.key === 'f' || e.key === 'F') { document.getElementById('btn-draw-fs').click(); }
+  });
+})();
+
 /* ══════════════════════════════════════
    INIT (async — ждём Firebase)
 ══════════════════════════════════════ */

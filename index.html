@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Библейская викторина</title>
-  <link rel="stylesheet" href="style.css?v=20260905-5" />
+  <link rel="stylesheet" href="style.css?v=20260905-6" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -154,6 +154,27 @@
           <button id="btn-raffle-done" class="btn-primary" style="width:100%;margin-top:16px">Готово</button>
         </div>
       </div>
+    </section>
+
+    <!-- ЭКРАН: Барабан розыгрыша (ТОЛЬКО админ; для показа в ProPresenter) -->
+    <section id="screen-draw" class="screen">
+      <div class="draw-stage">
+        <div class="draw-top">
+          <button id="btn-draw-exit" class="draw-chip">← Выход</button>
+          <span class="draw-count">🎟 Участников: <b id="draw-remaining">0</b> / <b id="draw-total">0</b></span>
+          <button id="btn-draw-fs" class="draw-chip">⛶ Во весь экран</button>
+        </div>
+        <div class="draw-drum" id="draw-drum">
+          <div class="draw-strip" id="draw-strip"></div>
+          <div class="draw-band"></div>
+        </div>
+        <div class="draw-winline" id="draw-winline">🎉 Победитель 🎉</div>
+        <div class="draw-controls">
+          <button class="draw-spin" id="btn-draw-spin">Крутить барабан</button>
+          <button id="btn-draw-reset" class="draw-chip">↺ Сбросить победителей</button>
+        </div>
+      </div>
+      <canvas id="draw-confetti"></canvas>
     </section>
 
     <!-- ЭКРАН: Главная -->
@@ -357,6 +378,13 @@
 
         <!-- Розыгрыш (временный модуль мероприятия) -->
         <div id="atab-raffle" class="admin-tab-content">
+          <div class="raffle-launch-box">
+            <button id="btn-launch-draw" class="btn-primary">🎰 Запустить барабан</button>
+            <label class="draw-speed">Время прокрутки: <b id="draw-dur-val">5.0</b> сек
+              <input type="range" id="draw-dur" min="2" max="15" step="0.5" value="5" />
+            </label>
+            <p class="hint-text">Барабан открывается только отсюда (из админки) и крутит зарегистрированных участников. Гости его не видят.</p>
+          </div>
           <div class="atab-header">
             <span id="admin-raffle-total"></span>
           </div>
@@ -416,9 +444,9 @@
 
   </div>
 
-  <script src="data.js?v=20260905-5"></script>
-  <script src="firebase-config.js?v=20260905-5"></script>
-  <script src="emailjs-config.js?v=20260905-5"></script>
-  <script src="app.js?v=20260905-5"></script>
+  <script src="data.js?v=20260905-6"></script>
+  <script src="firebase-config.js?v=20260905-6"></script>
+  <script src="emailjs-config.js?v=20260905-6"></script>
+  <script src="app.js?v=20260905-6"></script>
 </body>
 </html>
