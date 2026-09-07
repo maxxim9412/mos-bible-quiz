@@ -1257,7 +1257,7 @@ function drawWinnerSlide(theme, result, periodLabel) {
 
   ctx.fillStyle = '#64748b';
   ctx.font = '32px "Segoe UI", system-ui, sans-serif';
-  ctx.fillText('📖 Библейская викторина', W / 2, H - 90);
+  ctx.fillText('📖 Bible Quiz', W / 2, H - 90);
   ctx.font = '26px "Segoe UI", system-ui, sans-serif';
   ctx.fillText(periodLabel, W / 2, H - 50);
 
