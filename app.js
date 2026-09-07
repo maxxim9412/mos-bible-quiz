@@ -1484,14 +1484,22 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
   btn.textContent = 'Отправляем…';
   try {
     let num = null;
-    /* Порядковый номер — транзакция на счётчике (атомарно, без гонок). */
     if (firebaseDB) {
-      const sRes = await firebaseDB.ref(RAFFLE_SEQ).transaction(cur => (cur || 0) + 1);
-      num = sRes.snapshot.val();
-      entrant.num = num;
-      /* push() — уникальный ключ на каждого. Append-only: одновременные
-         регистрации не могут затереть друг друга (никто не пишет весь узел). */
-      await firebaseDB.ref(RAFFLE_ENTRANTS).push(entrant);
+      /* 1) СНАЧАЛА пишем участника под уникальным push()-ключом (append-only).
+            Это никогда не проваливается от конкуренции — даже при 100
+            одновременных регистрациях никого не теряем и не затираем. */
+      const ref = firebaseDB.ref(RAFFLE_ENTRANTS).push();
+      await ref.set(entrant);
+      /* 2) Потом — порядковый номер (best-effort). Транзакция на общем счётчике
+            под пиковой нагрузкой может ответить не мгновенно; участник уже
+            записан в любом случае, поэтому ошибка номера его не теряет. */
+      try {
+        const sRes = await firebaseDB.ref(RAFFLE_SEQ).transaction(cur => (cur || 0) + 1);
+        if (sRes.committed && sRes.snapshot.val() != null) {
+          num = sRes.snapshot.val();
+          await ref.child('num').set(num);
+        }
+      } catch (e2) { console.warn('Номер не присвоен под нагрузкой:', e2); }
     } else {
       /* Локальный режим без Firebase (офлайн-тест). */
       const local = store.get('raffle_local') || {};
@@ -1505,8 +1513,9 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
     /* Запоминаем на устройстве, что регистрация прошла — при повторном
        открытии ссылки покажем «уже зарегистрированы» вместо формы. */
     try { localStorage.setItem(RAFFLE_DONE_KEY, JSON.stringify({ num, fio, at: entrant.at })); } catch {}
-    /* Успех — показываем участнику его номер */
-    document.getElementById('raffle-num').textContent = num != null ? String(num) : '';
+    /* Успех — показываем участнику его номер (или ✓, если номер под пиком
+       не присвоился — участник всё равно записан) */
+    document.getElementById('raffle-num').textContent = num != null ? String(num) : '✓';
     document.getElementById('raffle-form-block').classList.add('hidden');
     document.getElementById('raffle-success').classList.remove('hidden');
   } catch (err) {
@@ -1679,9 +1688,15 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
 
   function saveWinners() { try { localStorage.setItem('raffle_winners', JSON.stringify(winners)); } catch {} }
   function entrantsArr() {
-    return Object.values(getRaffleEntrants()).filter(Boolean).sort((a, b) => (a.num || 1e9) - (b.num || 1e9));
+    /* Идентичность участника — по УНИКАЛЬНОМУ ключу записи (_key), а не по
+       номеру: так «не повторять победителей» надёжно даже если у кого-то под
+       пиком номер не успел присвоиться. */
+    return Object.entries(getRaffleEntrants())
+      .map(([k, e]) => Object.assign({ _key: k }, e))
+      .filter(e => e && e.fio)
+      .sort((a, b) => (a.num || 1e9) - (b.num || 1e9) || new Date(a.at || 0) - new Date(b.at || 0));
   }
-  function pool() { return entrantsArr().filter(e => winners.indexOf(e.num) < 0); }
+  function pool() { return entrantsArr().filter(e => winners.indexOf(e._key) < 0); }
 
   function sizeFor(names) {
     const itemH = Math.min(200, Math.max(84, Math.round(window.innerHeight * 0.16)));
@@ -1763,7 +1778,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
     document.getElementById('draw-winline').textContent =
       (winner.num != null ? '№' + winner.num + ' — ' : '') + '🎉 Победитель 🎉';
     if (!reduce) burst();
-    if (winners.indexOf(winner.num) < 0) { winners.push(winner.num); saveWinners(); }
+    if (winners.indexOf(winner._key) < 0) { winners.push(winner._key); saveWinners(); }
     updateCounts();
     spinBtn.disabled = pool().length === 0;
     spinBtn.textContent = pool().length === 0 ? 'Все разыграны' : 'Крутить ещё';
