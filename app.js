@@ -1391,15 +1391,14 @@ document.getElementById('btn-subtitle-save').addEventListener('click', () => {
    РОЗЫГРЫШ (RAFFLE) — ВРЕМЕННЫЙ МОДУЛЬ МЕРОПРИЯТИЯ
    Отдельная регистрация участников розыгрыша, полностью независимая от
    учёток викторины (узел users). Все данные лежат под узлом raffle/:
-     raffle/entrants/<телефон> = { fio, phone, phoneRaw, email, at }
-     raffle/emails/<кодир.email> = <телефон>   (индекс уникальности почты)
-   Запись идёт ТОЧЕЧНО через транзакции (как и users после фикса гонки),
-   поэтому одновременные регистрации не затирают друг друга и держат
-   нагрузку. Чтобы убрать мероприятие: удалить этот блок, разметку розыгрыша
-   в index.html, стили в style.css и узел raffle/ в Firebase.
+     raffle/entrants/<телефон> = { fio, phone, phoneRaw, at, num }
+     raffle/seq                = счётчик порядковых номеров
+   Запись идёт ТОЧЕЧНО через транзакции по ключу-телефону (как и users после
+   фикса гонки [[project_quiz_race_condition_bug]]) — одновременные регистрации
+   не затирают друг друга (никто не пишет весь узел целиком). Чтобы убрать
+   мероприятие: удалить этот блок, разметку в index.html, стили и узел raffle/.
 ══════════════════════════════════════════════════════════════════ */
 const RAFFLE_ENTRANTS = 'raffle/entrants';
-const RAFFLE_EMAILS   = 'raffle/emails';
 const RAFFLE_SEQ      = 'raffle/seq';   // счётчик порядковых номеров участников
 
 /* Телефон → только цифры; 8XXXXXXXXXX и 7XXXXXXXXXX сводим к одному виду,
@@ -1409,12 +1408,6 @@ function normPhone(raw) {
   if (d.length === 11 && (d[0] === '8' || d[0] === '7')) d = '7' + d.slice(1);
   return d;
 }
-/* Ключ Firebase не может содержать . # $ [ ] / — кодируем email в безопасный вид. */
-function emailKey(raw) {
-  return (raw || '').trim().toLowerCase()
-    .replace(/[.#$/\[\]]/g, c => '~' + c.charCodeAt(0).toString(16));
-}
-function isValidEmail(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -1469,45 +1462,34 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
   e.preventDefault();
   const btn   = document.getElementById('raffle-submit');
   const fio   = document.getElementById('raffle-fio').value.trim().replace(/\s+/g, ' ');
-  const email = document.getElementById('raffle-email').value.trim();
   const phone = normPhone(document.getElementById('raffle-phone').value);
 
   document.getElementById('raffle-error').classList.add('hidden');
   if (fio.length < 3)        return showRaffleError('Укажите фамилию и имя.');
   if (phone.length < 10)     return showRaffleError('Проверьте номер телефона.');
-  if (!isValidEmail(email))  return showRaffleError('Проверьте адрес почты.');
 
   const entrant = {
     fio, phone,
     phoneRaw: document.getElementById('raffle-phone').value.trim(),
-    email, at: new Date().toISOString(),
+    at: new Date().toISOString(),
   };
   const pKey = phone;
-  const eKey = emailKey(email);
 
   btn.disabled = true;
   btn.textContent = 'Отправляем…';
   try {
     let num = null;
     if (firebaseDB) {
-      /* 1) Телефон — первичный ключ. Транзакция: пишем, только если ячейка
-            пуста; иначе номер уже участвует. Это и есть защита от гонки. */
+      /* Телефон — ключ записи. Транзакция пишет ТОЛЬКО если ячейка пуста —
+         это и уникальность номера, и защита от гонки: каждый участник в своём
+         ключе raffle/entrants/<телефон>, никто не перезаписывает весь узел
+         (в отличие от старого бага викторины со store.set('users', …)). */
       const pRes = await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey)
         .transaction(cur => (cur === null ? entrant : undefined));
       if (!pRes.committed) return showRaffleError('Этот номер телефона уже участвует в розыгрыше.');
 
-      /* 2) Почта — вторичный индекс уникальности. */
-      const eRes = await firebaseDB.ref(RAFFLE_EMAILS + '/' + eKey)
-        .transaction(cur => (cur === null ? pKey : undefined));
-      if (!eRes.committed && eRes.snapshot.val() !== pKey) {
-        /* Почта уже закреплена за другим номером — откатываем запись по телефону. */
-        await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey).remove();
-        return showRaffleError('Эта почта уже участвует в розыгрыше.');
-      }
-
-      /* 3) Порядковый номер участника. Транзакция на счётчике raffle/seq
-            выдаёт следующий номер (без дырок и без гонок — назначаем только
-            после успешной проверки уникальности). */
+      /* Порядковый номер участника — транзакция на счётчике raffle/seq
+         (атомарно, без гонок и дырок; назначаем после успешной записи). */
       const sRes = await firebaseDB.ref(RAFFLE_SEQ).transaction(cur => (cur || 0) + 1);
       num = sRes.snapshot.val();
       await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey + '/num').set(num);
@@ -1515,8 +1497,6 @@ document.getElementById('form-raffle').addEventListener('submit', async e => {
       /* Локальный режим без Firebase (офлайн-тест). */
       const local = store.get('raffle_local') || {};
       if (local[pKey]) return showRaffleError('Этот номер телефона уже участвует в розыгрыше.');
-      if (Object.values(local).some(x => x.email.toLowerCase() === email.toLowerCase()))
-        return showRaffleError('Эта почта уже участвует в розыгрыше.');
       num = (store.get('raffle_seq_local') || 0) + 1;
       store.set('raffle_seq_local', num);
       entrant.num = num;
@@ -1555,7 +1535,7 @@ function renderRaffleTab() {
     row.innerHTML = `
       <div class="user-info">
         <div class="user-name">${e.num != null ? '№' + e.num + ' · ' : ''}${escHtml(e.fio)}</div>
-        <div class="user-detail">📱 ${escHtml(e.phoneRaw || e.phone)} · 📧 ${escHtml(e.email)} · ${when}</div>
+        <div class="user-detail">📱 ${escHtml(e.phoneRaw || e.phone)} · ${when}</div>
       </div>`;
     list.appendChild(row);
   });
@@ -1589,7 +1569,7 @@ document.getElementById('btn-raffle-copy').addEventListener('click', async () =>
   }
 });
 
-/* CSV со всеми полями (ФИО, телефон, почта, дата). Разделитель «;» и BOM —
+/* CSV (№, ФИО, телефон, дата). Разделитель «;» и BOM —
    чтобы Excel на русской локали открыл корректно, с кириллицей. */
 function csvCell(v) {
   v = String(v == null ? '' : v);
@@ -1599,9 +1579,9 @@ document.getElementById('btn-raffle-csv').addEventListener('click', () => {
   const arr = Object.values(getRaffleEntrants()).filter(Boolean)
     .sort((a, b) => (a.num || 1e9) - (b.num || 1e9) || new Date(a.at || 0) - new Date(b.at || 0));
   if (!arr.length) { flashBtn('btn-raffle-csv', 'Список пуст'); return; }
-  const rows = [['№', 'ФИО', 'Телефон', 'Email', 'Дата регистрации']];
+  const rows = [['№', 'ФИО', 'Телефон', 'Дата регистрации']];
   arr.forEach((e, i) => rows.push([
-    e.num != null ? e.num : i + 1, e.fio, e.phoneRaw || e.phone, e.email,
+    e.num != null ? e.num : i + 1, e.fio, e.phoneRaw || e.phone,
     e.at ? new Date(e.at).toLocaleString('ru-RU') : '',
   ]));
   const csv = '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
@@ -1619,9 +1599,8 @@ document.getElementById('btn-raffle-clear').addEventListener('click', async () =
   const n = Object.values(getRaffleEntrants()).filter(Boolean).length;
   if (!confirm(`Удалить всех участников розыгрыша (${n})? Это действие нельзя отменить.`)) return;
   if (firebaseDB) {
-    /* Чистим участников, индекс почт и счётчик номеров — новый список с №1. */
+    /* Чистим участников и счётчик номеров — новый список с №1. */
     await firebaseDB.ref(RAFFLE_ENTRANTS).remove().catch(console.error);
-    await firebaseDB.ref(RAFFLE_EMAILS).remove().catch(console.error);
     await firebaseDB.ref(RAFFLE_SEQ).remove().catch(console.error);
     localStorage.setItem('raffle_entrants_cache', '{}');
   } else {
@@ -1651,7 +1630,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
       names.forEach((fio, i) => {
         const key = 't' + Date.now().toString(36) + '_' + i;
         updates[RAFFLE_ENTRANTS + '/' + key] =
-          { fio, phone: key, phoneRaw: '—', email: '', at: new Date().toISOString(), num: start + i, test: true };
+          { fio, phone: key, phoneRaw: '—', at: new Date().toISOString(), num: start + i, test: true };
       });
       await firebaseDB.ref().update(updates);
     } else {
@@ -1660,7 +1639,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
       names.forEach((fio, i) => {
         seq++;
         const key = 't' + Date.now().toString(36) + '_' + i + Math.floor(Math.random() * 1000);
-        local[key] = { fio, phone: key, phoneRaw: '—', email: '', at: new Date().toISOString(), num: seq, test: true };
+        local[key] = { fio, phone: key, phoneRaw: '—', at: new Date().toISOString(), num: seq, test: true };
       });
       store.set('raffle_seq_local', seq);
       store.set('raffle_local', local);
