@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Bible Quiz</title>
-  <link rel="stylesheet" href="style.css?v=20260907-4" />
+  <link rel="stylesheet" href="style.css?v=20260907-6" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -131,9 +131,6 @@
             <label>Фамилия и имя
               <input type="text" id="raffle-fio" placeholder="Иванов Иван" autocomplete="name" required />
             </label>
-            <label>Мобильный телефон
-              <input type="tel" id="raffle-phone" placeholder="+7 900 000-00-00" autocomplete="tel" inputmode="tel" required />
-            </label>
             <p id="raffle-error" class="error hidden"></p>
             <button type="submit" id="raffle-submit" class="btn-primary">Участвовать</button>
           </form>
@@ -148,6 +145,17 @@
           </div>
           <p class="start-desc">Заявка принята. Розыгрыш пройдёт на конференции «Свет и соль» 12 сентября.</p>
           <button id="btn-raffle-done" class="btn-primary" style="width:100%;margin-top:16px">Готово</button>
+        </div>
+
+        <div id="raffle-already" class="hidden" style="text-align:center;padding:12px 0">
+          <div style="font-size:3rem;margin-bottom:12px">🎟️</div>
+          <h2 style="margin-bottom:10px">Вы уже зарегистрированы</h2>
+          <div class="raffle-num-box">
+            <span class="raffle-num-label">Ваш номер участника</span>
+            <span id="raffle-already-num" class="raffle-num-value">—</span>
+          </div>
+          <p class="start-desc">С одного устройства — одна регистрация. Розыгрыш пройдёт на конференции «Свет и соль» 12 сентября.</p>
+          <button id="btn-raffle-already-done" class="btn-primary" style="width:100%;margin-top:16px">Готово</button>
         </div>
       </div>
     </section>
@@ -449,9 +457,9 @@
 
   </div>
 
-  <script src="data.js?v=20260907-4"></script>
-  <script src="firebase-config.js?v=20260907-4"></script>
-  <script src="emailjs-config.js?v=20260907-4"></script>
-  <script src="app.js?v=20260907-4"></script>
+  <script src="data.js?v=20260907-6"></script>
+  <script src="firebase-config.js?v=20260907-6"></script>
+  <script src="emailjs-config.js?v=20260907-6"></script>
+  <script src="app.js?v=20260907-6"></script>
 </body>
 </html>

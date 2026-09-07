@@ -1391,23 +1391,17 @@ document.getElementById('btn-subtitle-save').addEventListener('click', () => {
    РОЗЫГРЫШ (RAFFLE) — ВРЕМЕННЫЙ МОДУЛЬ МЕРОПРИЯТИЯ
    Отдельная регистрация участников розыгрыша, полностью независимая от
    учёток викторины (узел users). Все данные лежат под узлом raffle/:
-     raffle/entrants/<телефон> = { fio, phone, phoneRaw, at, num }
+     raffle/entrants/<push-id> = { fio, at, num }
      raffle/seq                = счётчик порядковых номеров
-   Запись идёт ТОЧЕЧНО через транзакции по ключу-телефону (как и users после
-   фикса гонки [[project_quiz_race_condition_bug]]) — одновременные регистрации
-   не затирают друг друга (никто не пишет весь узел целиком). Чтобы убрать
-   мероприятие: удалить этот блок, разметку в index.html, стили и узел raffle/.
+   Каждый участник пишется под УНИКАЛЬНЫМ ключом push() (append-only) —
+   одновременные регистрации физически не могут затереть друг друга (в отличие
+   от старого бага [[project_quiz_race_condition_bug]] со store.set всего узла).
+   Повторную регистрацию с того же устройства ловим меткой в localStorage
+   (RAFFLE_DONE_KEY): при повторном открытии показываем «уже зарегистрированы».
+   Чтобы убрать мероприятие: удалить этот блок, разметку, стили и узел raffle/.
 ══════════════════════════════════════════════════════════════════ */
 const RAFFLE_ENTRANTS = 'raffle/entrants';
 const RAFFLE_SEQ      = 'raffle/seq';   // счётчик порядковых номеров участников
-
-/* Телефон → только цифры; 8XXXXXXXXXX и 7XXXXXXXXXX сводим к одному виду,
-   чтобы «8 900…» и «+7 900…» считались одним номером. */
-function normPhone(raw) {
-  let d = (raw || '').replace(/\D/g, '');
-  if (d.length === 11 && (d[0] === '8' || d[0] === '7')) d = '7' + d.slice(1);
-  return d;
-}
 
 function escHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -1433,13 +1427,29 @@ function ensureRaffleQR() {
   raffleQrDone = true;
 }
 
-/* ── Экран розыгрыша (регистрация всегда открыта) ── */
+/* Метка «этот device уже зарегистрировался» — в localStorage. */
+const RAFFLE_DONE_KEY = 'raffle_registered_v1';
+function getRaffleDone() { try { return JSON.parse(localStorage.getItem(RAFFLE_DONE_KEY)); } catch { return null; } }
+
+/* ── Экран розыгрыша ── */
 function openRaffleScreen() {
-  document.getElementById('form-raffle').reset();
+  const done = getRaffleDone();
+  const formBlock = document.getElementById('raffle-form-block');
+  const success   = document.getElementById('raffle-success');
+  const already   = document.getElementById('raffle-already');
   document.getElementById('raffle-error').classList.add('hidden');
-  document.getElementById('raffle-form-block').classList.remove('hidden');
-  document.getElementById('raffle-success').classList.add('hidden');
-  document.getElementById('raffle-num').textContent = '';
+  success.classList.add('hidden');
+  if (done) {
+    /* Уже регистрировались с этого устройства — показываем статус, не форму. */
+    formBlock.classList.add('hidden');
+    document.getElementById('raffle-already-num').textContent = done.num != null ? String(done.num) : '—';
+    already.classList.remove('hidden');
+  } else {
+    already.classList.add('hidden');
+    document.getElementById('form-raffle').reset();
+    document.getElementById('raffle-num').textContent = '';
+    formBlock.classList.remove('hidden');
+  }
   ensureRaffleQR();
   showScreen('raffle');
 }
@@ -1450,6 +1460,7 @@ document.getElementById('btn-go-raffle').addEventListener('click', openRaffleScr
 document.getElementById('btn-auth-back').addEventListener('click', () => showScreen('landing'));
 document.getElementById('btn-raffle-back').addEventListener('click', () => showScreen('landing'));
 document.getElementById('btn-raffle-done').addEventListener('click', () => showScreen('landing'));
+document.getElementById('btn-raffle-already-done').addEventListener('click', () => showScreen('landing'));
 
 function showRaffleError(msg) {
   const el = document.getElementById('raffle-error');
@@ -1460,49 +1471,40 @@ function showRaffleError(msg) {
 /* ── Регистрация участника розыгрыша ── */
 document.getElementById('form-raffle').addEventListener('submit', async e => {
   e.preventDefault();
-  const btn   = document.getElementById('raffle-submit');
-  const fio   = document.getElementById('raffle-fio').value.trim().replace(/\s+/g, ' ');
-  const phone = normPhone(document.getElementById('raffle-phone').value);
+  const btn = document.getElementById('raffle-submit');
+  const fio = document.getElementById('raffle-fio').value.trim().replace(/\s+/g, ' ');
 
   document.getElementById('raffle-error').classList.add('hidden');
-  if (fio.length < 3)        return showRaffleError('Укажите фамилию и имя.');
-  if (phone.length < 10)     return showRaffleError('Проверьте номер телефона.');
+  if (getRaffleDone())  { openRaffleScreen(); return; }   // с этого устройства уже регистрировались
+  if (fio.length < 3)   return showRaffleError('Укажите фамилию и имя.');
 
-  const entrant = {
-    fio, phone,
-    phoneRaw: document.getElementById('raffle-phone').value.trim(),
-    at: new Date().toISOString(),
-  };
-  const pKey = phone;
+  const entrant = { fio, at: new Date().toISOString() };
 
   btn.disabled = true;
   btn.textContent = 'Отправляем…';
   try {
     let num = null;
+    /* Порядковый номер — транзакция на счётчике (атомарно, без гонок). */
     if (firebaseDB) {
-      /* Телефон — ключ записи. Транзакция пишет ТОЛЬКО если ячейка пуста —
-         это и уникальность номера, и защита от гонки: каждый участник в своём
-         ключе raffle/entrants/<телефон>, никто не перезаписывает весь узел
-         (в отличие от старого бага викторины со store.set('users', …)). */
-      const pRes = await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey)
-        .transaction(cur => (cur === null ? entrant : undefined));
-      if (!pRes.committed) return showRaffleError('Этот номер телефона уже участвует в розыгрыше.');
-
-      /* Порядковый номер участника — транзакция на счётчике raffle/seq
-         (атомарно, без гонок и дырок; назначаем после успешной записи). */
       const sRes = await firebaseDB.ref(RAFFLE_SEQ).transaction(cur => (cur || 0) + 1);
       num = sRes.snapshot.val();
-      await firebaseDB.ref(RAFFLE_ENTRANTS + '/' + pKey + '/num').set(num);
+      entrant.num = num;
+      /* push() — уникальный ключ на каждого. Append-only: одновременные
+         регистрации не могут затереть друг друга (никто не пишет весь узел). */
+      await firebaseDB.ref(RAFFLE_ENTRANTS).push(entrant);
     } else {
       /* Локальный режим без Firebase (офлайн-тест). */
       const local = store.get('raffle_local') || {};
-      if (local[pKey]) return showRaffleError('Этот номер телефона уже участвует в розыгрыше.');
       num = (store.get('raffle_seq_local') || 0) + 1;
       store.set('raffle_seq_local', num);
       entrant.num = num;
-      local[pKey] = entrant;
+      const key = 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      local[key] = entrant;
       store.set('raffle_local', local);
     }
+    /* Запоминаем на устройстве, что регистрация прошла — при повторном
+       открытии ссылки покажем «уже зарегистрированы» вместо формы. */
+    try { localStorage.setItem(RAFFLE_DONE_KEY, JSON.stringify({ num, fio, at: entrant.at })); } catch {}
     /* Успех — показываем участнику его номер */
     document.getElementById('raffle-num').textContent = num != null ? String(num) : '';
     document.getElementById('raffle-form-block').classList.add('hidden');
@@ -1535,7 +1537,7 @@ function renderRaffleTab() {
     row.innerHTML = `
       <div class="user-info">
         <div class="user-name">${e.num != null ? '№' + e.num + ' · ' : ''}${escHtml(e.fio)}</div>
-        <div class="user-detail">📱 ${escHtml(e.phoneRaw || e.phone)} · ${when}</div>
+        <div class="user-detail">🕒 ${when}</div>
       </div>`;
     list.appendChild(row);
   });
@@ -1579,9 +1581,9 @@ document.getElementById('btn-raffle-csv').addEventListener('click', () => {
   const arr = Object.values(getRaffleEntrants()).filter(Boolean)
     .sort((a, b) => (a.num || 1e9) - (b.num || 1e9) || new Date(a.at || 0) - new Date(b.at || 0));
   if (!arr.length) { flashBtn('btn-raffle-csv', 'Список пуст'); return; }
-  const rows = [['№', 'ФИО', 'Телефон', 'Дата регистрации']];
+  const rows = [['№', 'ФИО', 'Дата регистрации']];
   arr.forEach((e, i) => rows.push([
-    e.num != null ? e.num : i + 1, e.fio, e.phoneRaw || e.phone,
+    e.num != null ? e.num : i + 1, e.fio,
     e.at ? new Date(e.at).toLocaleString('ru-RU') : '',
   ]));
   const csv = '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
@@ -1630,7 +1632,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
       names.forEach((fio, i) => {
         const key = 't' + Date.now().toString(36) + '_' + i;
         updates[RAFFLE_ENTRANTS + '/' + key] =
-          { fio, phone: key, phoneRaw: '—', at: new Date().toISOString(), num: start + i, test: true };
+          { fio, at: new Date().toISOString(), num: start + i, test: true };
       });
       await firebaseDB.ref().update(updates);
     } else {
@@ -1639,7 +1641,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
       names.forEach((fio, i) => {
         seq++;
         const key = 't' + Date.now().toString(36) + '_' + i + Math.floor(Math.random() * 1000);
-        local[key] = { fio, phone: key, phoneRaw: '—', at: new Date().toISOString(), num: seq, test: true };
+        local[key] = { fio, at: new Date().toISOString(), num: seq, test: true };
       });
       store.set('raffle_seq_local', seq);
       store.set('raffle_local', local);
@@ -1679,7 +1681,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
   function entrantsArr() {
     return Object.values(getRaffleEntrants()).filter(Boolean).sort((a, b) => (a.num || 1e9) - (b.num || 1e9));
   }
-  function pool() { return entrantsArr().filter(e => winners.indexOf(e.phone) < 0); }
+  function pool() { return entrantsArr().filter(e => winners.indexOf(e.num) < 0); }
 
   function sizeFor(names) {
     const itemH = Math.min(200, Math.max(84, Math.round(window.innerHeight * 0.16)));
@@ -1761,7 +1763,7 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
     document.getElementById('draw-winline').textContent =
       (winner.num != null ? '№' + winner.num + ' — ' : '') + '🎉 Победитель 🎉';
     if (!reduce) burst();
-    if (winners.indexOf(winner.phone) < 0) { winners.push(winner.phone); saveWinners(); }
+    if (winners.indexOf(winner.num) < 0) { winners.push(winner.num); saveWinners(); }
     updateCounts();
     spinBtn.disabled = pool().length === 0;
     spinBtn.textContent = pool().length === 0 ? 'Все разыграны' : 'Крутить ещё';
