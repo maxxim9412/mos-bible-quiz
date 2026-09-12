@@ -1412,21 +1412,6 @@ function getRaffleEntrants() {
   return store.get(firebaseDB ? 'raffle_entrants_cache' : 'raffle_local') || {};
 }
 
-/* ── QR-код на странице розыгрыша (ведёт СРАЗУ на регистрацию) ── */
-const RAFFLE_SITE_URL = 'https://bible-quiz.online/#roz';
-let raffleQrDone = false;
-function ensureRaffleQR() {
-  if (raffleQrDone || typeof QRCode === 'undefined') return;
-  const el = document.getElementById('raffle-qr');
-  if (!el) return;
-  new QRCode(el, {
-    text: RAFFLE_SITE_URL, width: 190, height: 190,
-    colorDark: '#0f172a', colorLight: '#ffffff',
-    correctLevel: QRCode.CorrectLevel.M,
-  });
-  raffleQrDone = true;
-}
-
 /* Метка «этот device уже зарегистрировался» — в localStorage. */
 const RAFFLE_DONE_KEY = 'raffle_registered_v1';
 function getRaffleDone() { try { return JSON.parse(localStorage.getItem(RAFFLE_DONE_KEY)); } catch { return null; } }
@@ -1450,7 +1435,6 @@ function openRaffleScreen() {
     document.getElementById('raffle-num').textContent = '';
     formBlock.classList.remove('hidden');
   }
-  ensureRaffleQR();
   showScreen('raffle');
 }
 

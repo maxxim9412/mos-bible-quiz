@@ -546,18 +546,6 @@ textarea { resize: vertical; }
 .raffle-open-box .btn-danger { width: 100%; }
 .raffle-open-box .hint-text { margin: 8px 0 0; }
 
-.raffle-qr-wrap {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 10px; margin-bottom: 18px;
-}
-.raffle-qr-wrap #raffle-qr {
-  background: #fff; padding: 12px; border-radius: 12px;
-  line-height: 0; box-shadow: 0 8px 24px rgba(0,0,0,.35);
-}
-.raffle-qr-wrap #raffle-qr img,
-.raffle-qr-wrap #raffle-qr canvas { display: block; }
-.raffle-qr-cap { font-size: .82rem; color: var(--text-muted); text-align: center; }
-
 /* ── Стартовый выбор (Викторина / Розыгрыш) ── */
 .landing-choice { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
 .landing-btn {
