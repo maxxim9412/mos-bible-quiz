@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Bible Quiz</title>
-  <link rel="stylesheet" href="style.css?v=20260912-1" />
+  <link rel="stylesheet" href="style.css?v=20260914" />
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
@@ -21,8 +21,9 @@
 
   <div id="app">
 
-    <!-- ЭКРАН: Стартовый выбор (Викторина / Розыгрыш) -->
-    <section id="screen-landing" class="screen active">
+    <!-- ЭКРАН: Стартовый выбор (Викторина / Розыгрыш) — используется только
+         когда в app.js включён RAFFLE_ENABLED, сейчас недостижим -->
+    <section id="screen-landing" class="screen">
       <div class="card">
         <h1 class="logo">✝️ Bible Quiz</h1>
         <p class="auth-subtitle">Выберите, что открыть</p>
@@ -40,7 +41,7 @@
     </section>
 
     <!-- ЭКРАН: Авторизация -->
-    <section id="screen-auth" class="screen">
+    <section id="screen-auth" class="screen active">
       <div class="card">
         <button id="btn-auth-back" class="btn-link" style="align-self:flex-start">← Назад</button>
         <h1 class="logo">✝️ Библейская<br>викторина</h1>
@@ -451,9 +452,9 @@
 
   </div>
 
-  <script src="data.js?v=20260912-1"></script>
-  <script src="firebase-config.js?v=20260912-1"></script>
-  <script src="emailjs-config.js?v=20260912-1"></script>
-  <script src="app.js?v=20260912-1"></script>
+  <script src="data.js?v=20260914"></script>
+  <script src="firebase-config.js?v=20260914"></script>
+  <script src="emailjs-config.js?v=20260914"></script>
+  <script src="app.js?v=20260914"></script>
 </body>
 </html>

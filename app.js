@@ -7,6 +7,13 @@ const ADMIN_PASS = 'admin123';
    false — вернуться к показу ответа после каждого вопроса. */
 const SHOW_ANSWER_REVIEW = true;
 
+/* Модуль розыгрыша (регистрация ФИО + барабан в админке) — временный,
+   под конкретные мероприятия. Выключен до следующего случая: сайт сразу
+   открывает викторину, без стартового выбора и без #roz deep-link.
+   true — вернуть стартовый экран «Викторина / Розыгрыш». Сам код и
+   админ-вкладка «🎉 Розыгрыш» никуда не делись, просто не на виду. */
+const RAFFLE_ENABLED = false;
+
 /* ─── Firebase ─── */
 let firebaseDB = null;
 
@@ -1442,6 +1449,11 @@ function openRaffleScreen() {
 document.getElementById('btn-go-quiz').addEventListener('click', () => showScreen('auth'));
 document.getElementById('btn-go-raffle').addEventListener('click', openRaffleScreen);
 document.getElementById('btn-auth-back').addEventListener('click', () => showScreen('landing'));
+if (!RAFFLE_ENABLED) {
+  /* Пока розыгрыш выключен — со страницы входа некуда возвращаться,
+     стартовый выбор недостижим (см. init()). */
+  document.getElementById('btn-auth-back').classList.add('hidden');
+}
 document.getElementById('btn-raffle-back').addEventListener('click', () => showScreen('landing'));
 document.getElementById('btn-raffle-done').addEventListener('click', () => showScreen('landing'));
 document.getElementById('btn-raffle-already-done').addEventListener('click', () => showScreen('landing'));
@@ -1870,8 +1882,10 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
 
   loadSubtitle();
 
-  /* QR ведёт на #roz → сразу открываем регистрацию на розыгрыш */
-  if (location.hash.replace('#', '').toLowerCase() === 'roz') {
+  /* QR ведёт на #roz → сразу открываем регистрацию на розыгрыш
+     (только пока модуль включён — старые QR/ссылки с прошлого мероприятия
+     не должны открывать неактуальную форму). */
+  if (RAFFLE_ENABLED && location.hash.replace('#', '').toLowerCase() === 'roz') {
     openRaffleScreen();
     return;
   }
@@ -1884,5 +1898,5 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
     const users = store.get('users') || {};
     if (users[session]) { loginUser(users[session]); return; }
   }
-  showScreen('landing');
+  showScreen(RAFFLE_ENABLED ? 'landing' : 'auth');
 })();
