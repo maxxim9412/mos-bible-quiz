@@ -1,6 +1,9 @@
-/* ─── Constants ─── */
-const ADMIN_USER = 'admin';
-const ADMIN_PASS = 'admin123';
+/* ─── Constants ───
+   Отдельного admin-аккаунта с захардкоженным паролем больше нет — admin
+   определяется по совпадению email вошедшего с ADMIN_EMAIL (та же
+   константа, что в emailjs-config.js используется как получатель
+   отчётов). Чтобы стать админом — зарегистрироваться обычным образом
+   на этот email. */
 
 /* Одноразовый режим: правильный ответ не показывается по ходу викторины,
    вместо этого в конце открывается разбор всех вопросов.
@@ -37,19 +40,47 @@ function fbToArray(val) {
   return Object.values(val).filter(x => x !== null && x !== undefined);
 }
 
-/* Точечная запись одного пользователя: пишет только users/<username>,
-   а не весь узел 'users' целиком. Так параллельные регистрации/сохранения
-   результатов у разных людей не затирают друг друга — раньше именно
-   это приводило к пропаже участников и результатов при одновременной записи.
-   userObj === null удаляет пользователя. */
-function saveUser(username, userObj) {
+/* Точечная запись одного профиля: пишет только users/<uid>, а не весь
+   узел 'users' целиком — параллельные регистрации/сохранения результатов
+   у разных людей не затирают друг друга. profileObj === null удаляет
+   профиль (сам логин в Firebase Auth при этом не удаляется — это может
+   сделать только сам владелец аккаунта, клиентский SDK не даёт
+   удалить чужой аккаунт без бэкенда). Пароль здесь никогда не хранится —
+   им целиком владеет Firebase Authentication. */
+function saveUserProfile(uid, profileObj) {
   const users = store.get('users') || {};
-  if (userObj === null) delete users[username];
-  else users[username] = userObj;
+  if (profileObj === null) delete users[uid];
+  else users[uid] = profileObj;
   localStorage.setItem('users', JSON.stringify(users));
   if (firebaseDB) {
-    firebaseDB.ref('users/' + username).set(userObj).catch(console.error);
+    firebaseDB.ref('users/' + uid).set(profileObj).catch(console.error);
   }
+}
+
+/* Индекс "имя пользователя → {uid, email}", нужен только чтобы при входе
+   по привычному имени (не email) найти, какой email отдать в Firebase
+   Auth. Публично читаемый (без входа) — иначе вход был бы невозможен
+   вообще: курица-и-яйцо (нечем прочитать email без входа, нечем войти
+   без email). Секретов тут нет, только email — пароли в этом узле
+   никогда не лежали. */
+const USERNAMES_PATH = 'usernames';
+async function lookupEmailByUsername(username) {
+  if (!firebaseDB) return null;
+  const snap = await firebaseDB.ref(USERNAMES_PATH + '/' + username).once('value');
+  return snap.val()?.email || null;
+}
+async function claimUsername(username, uid, email) {
+  if (!firebaseDB) return;
+  await firebaseDB.ref(USERNAMES_PATH + '/' + username).set({ uid, email });
+}
+async function releaseUsername(username) {
+  if (!firebaseDB) return;
+  await firebaseDB.ref(USERNAMES_PATH + '/' + username).remove();
+}
+async function usernameTaken(username) {
+  if (!firebaseDB) return false;
+  const snap = await firebaseDB.ref(USERNAMES_PATH + '/' + username).once('value');
+  return snap.exists();
 }
 
 /* ─── State ─── */
@@ -71,11 +102,6 @@ function formatTime(sec) {
   const m = Math.floor(sec / 60).toString().padStart(2, '0');
   const s = (sec % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
-}
-
-function genTempPassword() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
 /* ══════════════════════════════════════
@@ -229,8 +255,8 @@ function setupRealtimeListeners() {
     const users = snap.val() || {};
     localStorage.setItem('users', JSON.stringify(users));
     /* Обновить currentUser свежими данными из базы */
-    if (currentUser && !currentUser.isAdmin && users[currentUser.username]) {
-      currentUser = users[currentUser.username];
+    if (currentUser && !currentUser.isAdmin && users[currentUser.uid]) {
+      currentUser = { ...users[currentUser.uid], uid: currentUser.uid, isAdmin: false };
     }
     if (currentUser?.isAdmin) {
       const usersContent = document.getElementById('atab-users');
@@ -246,12 +272,8 @@ function setupRealtimeListeners() {
     }
   });
 
-  /* Субтитр */
-  firebaseDB.ref('quiz_subtitle').on('value', snap => {
-    const text = snap.val() || '';
-    localStorage.setItem('quiz_subtitle', JSON.stringify(text));
-    loadSubtitle();
-  });
+  /* Субтитр слушается отдельно, всегда, ещё в init() — он виден и до
+     входа, см. там же. Здесь второй раз не подписываемся. */
 
   /* Розыгрыш: новые заявки с любых устройств → живой счётчик у админа */
   firebaseDB.ref(RAFFLE_ENTRANTS).on('value', snap => {
@@ -275,61 +297,123 @@ document.querySelectorAll('.tab').forEach(btn => {
   });
 });
 
-document.getElementById('form-register').addEventListener('submit', e => {
+/* Понятные сообщения для стандартных кодов ошибок Firebase Auth. */
+function authErrorMessage(err, fallback) {
+  switch (err?.code) {
+    case 'auth/email-already-in-use': return 'Этот email уже зарегистрирован.';
+    case 'auth/invalid-email':        return 'Некорректный email.';
+    case 'auth/weak-password':        return 'Пароль слишком простой (минимум 6 символов).';
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+    case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials': return 'Неверное имя пользователя или пароль.';
+    case 'auth/too-many-requests':    return 'Слишком много попыток входа. Подождите немного и попробуйте снова.';
+    default:                          return fallback;
+  }
+}
+
+/* Единая точка входа после успешной авторизации в Firebase Auth —
+   вызывается и из onAuthStateChanged (восстановление сессии при
+   загрузке страницы), и напрямую сразу после входа/регистрации
+   (не дожидаясь события, чтобы не читать профиль раньше, чем он
+   записан). currentUser.isAdmin определяется только совпадением
+   email — никакого отдельного admin-аккаунта в Firebase Auth нет. */
+let handlingAuthedUser = false;
+async function handleAuthenticatedUser(fbUser) {
+  if (handlingAuthedUser) return;
+  handlingAuthedUser = true;
+  try {
+    const snap = await firebaseDB.ref('users/' + fbUser.uid).once('value');
+    const profile = snap.val();
+    const isAdmin = fbUser.email === ADMIN_EMAIL;
+    if (!profile && !isAdmin) {
+      /* Профиль не найден (например, удалён админом) — нет смысла
+         оставлять в системе без данных. */
+      await firebase.auth().signOut();
+      return;
+    }
+    currentUser = profile
+      ? { ...profile, uid: fbUser.uid, isAdmin }
+      : { uid: fbUser.uid, username: 'admin', email: fbUser.email, isAdmin: true, results: [] };
+    showHome();
+  } finally {
+    handlingAuthedUser = false;
+  }
+}
+
+document.getElementById('form-register').addEventListener('submit', async e => {
   e.preventDefault();
   const username = document.getElementById('reg-username').value.trim();
   const email    = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
   const errEl    = document.getElementById('reg-error');
+  const btn      = e.target.querySelector('button[type="submit"]');
 
-  if (username === ADMIN_USER) {
-    errEl.textContent = 'Это имя зарезервировано.';
+  if (!firebaseDB) {
+    errEl.textContent = 'Firebase не настроен — регистрация недоступна в этом режиме.';
     errEl.classList.remove('hidden'); return;
   }
-  const users = store.get('users') || {};
-  if (users[username]) {
-    errEl.textContent = 'Пользователь с таким именем уже существует.';
-    errEl.classList.remove('hidden'); return;
-  }
-  if (Object.values(users).some(u => u.email === email)) {
-    errEl.textContent = 'Этот email уже зарегистрирован.';
+  if (!username) {
+    errEl.textContent = 'Введите имя пользователя.';
     errEl.classList.remove('hidden'); return;
   }
   errEl.classList.add('hidden');
-  const newUser = { username, email, password, registeredAt: new Date().toISOString(), results: [] };
-  saveUser(username, newUser);
-  loginUser(newUser);
+  btn.disabled = true;
+
+  try {
+    if (await usernameTaken(username)) {
+      errEl.textContent = 'Пользователь с таким именем уже существует.';
+      errEl.classList.remove('hidden'); return;
+    }
+    const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
+    const uid  = cred.user.uid;
+    const newUser = { username, email, registeredAt: new Date().toISOString(), results: [] };
+    await claimUsername(username, uid, email);
+    saveUserProfile(uid, newUser);
+    await handleAuthenticatedUser(cred.user);
+  } catch (err) {
+    errEl.textContent = authErrorMessage(err, 'Не удалось зарегистрироваться: ' + (err.message || err));
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
 });
 
-document.getElementById('form-login').addEventListener('submit', e => {
+document.getElementById('form-login').addEventListener('submit', async e => {
   e.preventDefault();
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl    = document.getElementById('login-error');
+  const btn      = e.target.querySelector('button[type="submit"]');
 
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    loginUser({ username: ADMIN_USER, isAdmin: true, results: [] }); return;
-  }
-  const users = store.get('users') || {};
-  if (!users[username] || users[username].password !== password) {
-    errEl.textContent = 'Неверное имя пользователя или пароль.';
+  if (!firebaseDB) {
+    errEl.textContent = 'Firebase не настроен — вход недоступен в этом режиме.';
     errEl.classList.remove('hidden'); return;
   }
   errEl.classList.add('hidden');
-  loginUser(users[username]);
+  btn.disabled = true;
+
+  try {
+    const email = await lookupEmailByUsername(username);
+    if (!email) {
+      errEl.textContent = 'Неверное имя пользователя или пароль.';
+      errEl.classList.remove('hidden'); return;
+    }
+    const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+    await handleAuthenticatedUser(cred.user);
+  } catch (err) {
+    errEl.textContent = authErrorMessage(err, 'Не удалось войти: ' + (err.message || err));
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
 });
 
-function loginUser(user) {
-  currentUser = user;
-  localStorage.setItem('quiz_session', user.username);
-  showHome();
-}
-
-document.getElementById('btn-logout').addEventListener('click', () => {
+document.getElementById('btn-logout').addEventListener('click', async () => {
   stopGlobalTimer();
   currentUser = null;
-  localStorage.removeItem('quiz_session');
-  showScreen('landing');
+  await firebase.auth().signOut();
+  showScreen(RAFFLE_ENABLED ? 'landing' : 'auth');
 });
 
 /* ══════════════════════════════════════
@@ -354,58 +438,34 @@ document.getElementById('btn-forgot-send').addEventListener('click', async () =>
     errEl.textContent = 'Введите email.';
     errEl.classList.remove('hidden'); return;
   }
-
-  const users = store.get('users') || {};
-  const user  = Object.values(users).find(u => u.email === email);
-
-  if (!user) {
-    errEl.textContent = 'Пользователь с таким email не найден.';
-    errEl.classList.remove('hidden'); return;
-  }
   errEl.classList.add('hidden');
-
-  const tempPass = genTempPassword();
-  const updatedUser = { ...user, password: tempPass };
-  saveUser(user.username, updatedUser);
 
   const btn = document.getElementById('btn-forgot-send');
   btn.textContent = 'Отправка...';
   btn.disabled = true;
 
-  const emailjsReady = typeof EMAILJS_PUBLIC_KEY !== 'undefined' && EMAILJS_PUBLIC_KEY !== 'YOUR_PUBLIC_KEY';
-
-  if (emailjsReady) {
-    try {
-      await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-        to_email:      user.email,
-        to_name:       user.username,
-        temp_password: tempPass,
-      });
-      showForgotSuccess(user.email, false);
-    } catch (err) {
-      showForgotSuccess(user.email, true, tempPass);
-    }
-  } else {
-    showForgotSuccess(user.email, true, tempPass);
+  /* Сброс пароля теперь делает сам Firebase Auth — шлёт ссылку на email,
+     мы больше нигде не генерируем и не храним пароли. */
+  try {
+    await firebase.auth().sendPasswordResetEmail(email);
+    showForgotSuccess(email);
+  } catch (err) {
+    errEl.textContent = err.code === 'auth/user-not-found'
+      ? 'Пользователь с таким email не найден.'
+      : 'Не удалось отправить письмо: ' + (err.message || err);
+    errEl.classList.remove('hidden');
   }
 
   btn.textContent = 'Выслать пароль';
   btn.disabled = false;
 });
 
-function showForgotSuccess(email, showOnScreen, tempPass) {
+function showForgotSuccess(email) {
   document.getElementById('forgot-step-email').classList.add('hidden');
   document.getElementById('forgot-step-success').classList.remove('hidden');
-
-  const textEl = document.getElementById('forgot-success-text');
-  if (showOnScreen) {
-    textEl.innerHTML = `Временный пароль для <strong>${email}</strong>:<br>
-      <span class="temp-pass-box">${tempPass}</span><br>
-      <small>Запомните его и войдите в систему.</small>`;
-  } else {
-    textEl.innerHTML = `Письмо с временным паролем отправлено на<br><strong>${email}</strong><br>
-      <small>Проверьте папку «Спам», если письмо не пришло.</small>`;
-  }
+  document.getElementById('forgot-success-text').innerHTML =
+    `Письмо со ссылкой для сброса пароля отправлено на<br><strong>${email}</strong><br>
+     <small>Перейдите по ссылке из письма и задайте новый пароль. Проверьте папку «Спам», если письмо не пришло.</small>`;
 }
 
 /* ══════════════════════════════════════
@@ -703,7 +763,7 @@ function finishQuiz(timeOut) {
 
   if (!currentUser.isAdmin) {
     const users = store.get('users') || {};
-    const freshUser = users[currentUser.username];
+    const freshUser = users[currentUser.uid];
     if (freshUser) {
       const entry = { score, total, pct, elapsed, finishedAt, date: new Date().toLocaleDateString('ru-RU') };
       if (review) entry.review = review;
@@ -713,12 +773,12 @@ function finishQuiz(timeOut) {
          мере того, как отвечают остальные. Итоги оглашаются отдельно. */
       const sched = getSchedule();
       const schedStart = sched ? new Date(sched.start).getTime() : 0;
-      const usersWithMe = { ...users, [currentUser.username]: { ...freshUser, results: [entry, ...(freshUser.results || [])] } };
+      const usersWithMe = { ...users, [currentUser.uid]: { ...freshUser, results: [entry, ...(freshUser.results || [])] } };
       entry.leaderboardSnapshot = buildRanking(usersWithMe, schedStart);
 
       const updatedUser = { ...freshUser, results: [entry, ...(freshUser.results || [])] };
-      saveUser(currentUser.username, updatedUser);
-      currentUser = updatedUser;
+      saveUserProfile(currentUser.uid, updatedUser);
+      currentUser = { ...updatedUser, uid: currentUser.uid, isAdmin: false };
     }
   }
   showScreen('result');
@@ -970,7 +1030,7 @@ function renderUsersTab() {
   const sched  = getSchedule();
   const schedStart = sched ? new Date(sched.start).getTime() : 0;
   const list   = document.getElementById('admin-users-list');
-  const entries = Object.values(users);
+  const entries = Object.entries(users); // [uid, profile][]
 
   document.getElementById('admin-users-total').textContent = `Зарегистрировано: ${entries.length}`;
   list.innerHTML = '';
@@ -980,14 +1040,14 @@ function renderUsersTab() {
     return;
   }
 
-  entries.sort((a, b) => {
+  entries.sort(([, a], [, b]) => {
     const aPlayed = (a.results || []).some(r => r.finishedAt && r.finishedAt >= schedStart);
     const bPlayed = (b.results || []).some(r => r.finishedAt && r.finishedAt >= schedStart);
     if (aPlayed !== bPlayed) return bPlayed - aPlayed;
     return new Date(b.registeredAt || 0) - new Date(a.registeredAt || 0);
   });
 
-  entries.forEach(u => {
+  entries.forEach(([uid, u]) => {
     const played = (u.results || []).some(r => r.finishedAt && r.finishedAt >= schedStart);
     const bestResult = (u.results || []).reduce((best, r) =>
       !best || r.pct > best.pct || (r.pct === best.pct && r.finishedAt < best.finishedAt) ? r : best
@@ -1011,8 +1071,8 @@ function renderUsersTab() {
         </div>
       </div>
       <div class="user-actions">
-        <button class="btn-icon btn-secondary" data-reset="${u.username}" title="Сбросить пароль">🔑</button>
-        <button class="btn-icon btn-danger"     data-deluser="${u.username}" title="Удалить">🗑️</button>
+        <button class="btn-icon btn-secondary" data-reset="${uid}" title="Отправить ссылку для сброса пароля">🔑</button>
+        <button class="btn-icon btn-danger"     data-deluser="${uid}" title="Удалить">🗑️</button>
       </div>`;
     list.appendChild(row);
   });
@@ -1023,24 +1083,41 @@ function renderUsersTab() {
     btn.addEventListener('click', () => adminDeleteUser(btn.dataset.deluser)));
 }
 
-function adminResetPassword(username) {
+/* Админ больше не может мгновенно назначить и показать пароль — своим
+   паролем теперь владеет только сам Firebase Auth. Вместо этого админ
+   просит Firebase выслать человеку ссылку для сброса — как обычное
+   «Забыли пароль», только инициирует её админ. */
+async function adminResetPassword(uid) {
   const users = store.get('users') || {};
-  if (!users[username]) return;
-  const tempPass = genTempPassword();
-  saveUser(username, { ...users[username], password: tempPass });
+  const user  = users[uid];
+  if (!user) return;
 
-  document.getElementById('reset-modal-body').innerHTML = `
-    <p style="margin-bottom:12px">Новый временный пароль для <strong>${username}</strong>:</p>
-    <div class="temp-pass-box">${tempPass}</div>
-    <p style="margin-top:12px;font-size:.85rem;color:var(--text-muted)">
-      Сообщите пароль пользователю — он сможет войти и установить новый.
-    </p>`;
+  try {
+    await firebase.auth().sendPasswordResetEmail(user.email);
+    document.getElementById('reset-modal-body').innerHTML = `
+      <p style="margin-bottom:12px">Письмо со ссылкой для сброса пароля отправлено на:</p>
+      <div class="temp-pass-box">${user.email}</div>
+      <p style="margin-top:12px;font-size:.85rem;color:var(--text-muted)">
+        Пусть пользователь перейдёт по ссылке из письма и задаст новый пароль сам.
+      </p>`;
+  } catch (err) {
+    document.getElementById('reset-modal-body').innerHTML =
+      `<p style="color:var(--danger)">Не удалось отправить письмо: ${err.message || err}</p>`;
+  }
   document.getElementById('reset-modal-overlay').classList.remove('hidden');
 }
 
-function adminDeleteUser(username) {
-  if (!confirm(`Удалить пользователя «${username}»? Это действие нельзя отменить.`)) return;
-  saveUser(username, null);
+/* Удаляет профиль и запись в индексе имён. Сам логин в Firebase Auth
+   при этом не удаляется — клиентский SDK не умеет удалять чужой
+   аккаунт без бэкенда. Человек с такими email+паролем формально сможет
+   войти, но handleAuthenticatedUser не найдёт профиль и сразу выйдет. */
+async function adminDeleteUser(uid) {
+  const users = store.get('users') || {};
+  const user  = users[uid];
+  if (!user) return;
+  if (!confirm(`Удалить пользователя «${user.username}»? Это действие нельзя отменить.`)) return;
+  saveUserProfile(uid, null);
+  await releaseUsername(user.username);
   renderUsersTab();
 }
 
@@ -1836,6 +1913,39 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
   });
 })();
 
+/* Читает все открытые без входа ветки (вопросы, расписание, розыгрыш) —
+   доступны только сигнатурам 'usernames' и 'raffle', остальное требует
+   auth != null, поэтому вызывается только ПОСЛЕ успешного входа. */
+async function loadAllDataIntoCache() {
+  const snap = await firebaseDB.ref('/').once('value');
+  const data = snap.val() || {};
+
+  if (data.users)
+    localStorage.setItem('users', JSON.stringify(data.users));
+  if (data.quiz_schedule)
+    localStorage.setItem('quiz_schedule', JSON.stringify(data.quiz_schedule));
+  if (data.quiz_subtitle != null)
+    localStorage.setItem('quiz_subtitle', JSON.stringify(data.quiz_subtitle));
+  if (data.bible_questions)
+    localStorage.setItem('bible_questions', JSON.stringify(fbToArray(data.bible_questions)));
+  if (data.quiz_reports)
+    localStorage.setItem('quiz_reports', JSON.stringify(fbToArray(data.quiz_reports)));
+  if (data.raffle && data.raffle.entrants)
+    localStorage.setItem('raffle_entrants_cache', JSON.stringify(data.raffle.entrants));
+}
+
+function showSignedOutScreen() {
+  /* QR ведёт на #roz → сразу открываем регистрацию на розыгрыш (она не
+     требует входа — работает и так). Только пока модуль включён —
+     старые QR/ссылки с прошлого мероприятия не должны открывать
+     неактуальную форму. */
+  if (RAFFLE_ENABLED && location.hash.replace('#', '').toLowerCase() === 'roz') {
+    openRaffleScreen();
+    return;
+  }
+  showScreen(RAFFLE_ENABLED ? 'landing' : 'auth');
+}
+
 /* ══════════════════════════════════════
    INIT (async — ждём Firebase)
 ══════════════════════════════════════ */
@@ -1845,58 +1955,46 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
   const fbConfigured = typeof FIREBASE_CONFIG !== 'undefined'
     && FIREBASE_CONFIG.apiKey !== 'YOUR_API_KEY';
 
-  if (fbConfigured) {
-    try {
-      if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-      firebaseDB = firebase.database();
-
-      /* Загружаем все данные из Firebase в localStorage */
-      const snap = await firebaseDB.ref('/').once('value');
-      const data = snap.val() || {};
-
-      if (data.users)
-        localStorage.setItem('users', JSON.stringify(data.users));
-      if (data.quiz_schedule)
-        localStorage.setItem('quiz_schedule', JSON.stringify(data.quiz_schedule));
-      if (data.quiz_subtitle != null)
-        localStorage.setItem('quiz_subtitle', JSON.stringify(data.quiz_subtitle));
-      if (data.bible_questions)
-        localStorage.setItem('bible_questions', JSON.stringify(fbToArray(data.bible_questions)));
-      if (data.quiz_reports)
-        localStorage.setItem('quiz_reports', JSON.stringify(fbToArray(data.quiz_reports)));
-      if (data.raffle && data.raffle.entrants)
-        localStorage.setItem('raffle_entrants_cache', JSON.stringify(data.raffle.entrants));
-
-      setupRealtimeListeners();
-    } catch (err) {
-      console.error('Firebase init error:', err);
-      /* Продолжаем в режиме localStorage */
-    }
-  }
-
-  /* Проверяем истёкшее расписание сразу после загрузки данных */
-  checkScheduleExpiry();
-
-  /* Скрываем экран загрузки */
-  if (overlay) overlay.style.display = 'none';
-
-  loadSubtitle();
-
-  /* QR ведёт на #roz → сразу открываем регистрацию на розыгрыш
-     (только пока модуль включён — старые QR/ссылки с прошлого мероприятия
-     не должны открывать неактуальную форму). */
-  if (RAFFLE_ENABLED && location.hash.replace('#', '').toLowerCase() === 'roz') {
-    openRaffleScreen();
+  if (!fbConfigured) {
+    /* Локальная изолированная копия без Firebase — входа тут больше нет
+       (Auth требует настоящего подключения), только просмотр экранов. */
+    if (overlay) overlay.style.display = 'none';
+    showSignedOutScreen();
     return;
   }
 
-  const session = localStorage.getItem('quiz_session');
-  if (session === ADMIN_USER) {
-    loginUser({ username: ADMIN_USER, isAdmin: true, results: [] }); return;
-  }
-  if (session) {
-    const users = store.get('users') || {};
-    if (users[session]) { loginUser(users[session]); return; }
-  }
-  showScreen(RAFFLE_ENABLED ? 'landing' : 'auth');
+  if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+  firebaseDB = firebase.database();
+
+  /* Подзаголовок виден прямо на экране входа, до авторизации — значит
+     читается отдельно, всегда (путь 'quiz_subtitle' открыт на чтение
+     без входа в отличие от остальных данных, см. правила базы). */
+  firebaseDB.ref('quiz_subtitle').on('value', snap => {
+    localStorage.setItem('quiz_subtitle', JSON.stringify(snap.val() || ''));
+    loadSubtitle();
+  });
+
+  /* onAuthStateChanged — единственный источник правды о том, вошли мы
+     или нет. Firebase Auth сам хранит сессию между перезагрузками
+     страницы (раньше это делали вручную через localStorage['quiz_session']).
+     Срабатывает и при обычной загрузке страницы (восстановление сессии),
+     и после signOut(). Вход/регистрация вызывают handleAuthenticatedUser
+     напрямую, не дожидаясь этого события — см. там же. */
+  firebase.auth().onAuthStateChanged(async fbUser => {
+    if (overlay) overlay.style.display = 'none';
+    if (!fbUser) {
+      currentUser = null;
+      showSignedOutScreen();
+      return;
+    }
+    try {
+      await loadAllDataIntoCache();
+      setupRealtimeListeners();
+      checkScheduleExpiry();
+      loadSubtitle();
+      await handleAuthenticatedUser(fbUser);
+    } catch (err) {
+      console.error('Ошибка загрузки данных после входа:', err);
+    }
+  });
 })();
