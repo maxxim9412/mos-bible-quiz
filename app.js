@@ -1913,25 +1913,33 @@ document.getElementById('btn-raffle-bulk').addEventListener('click', async () =>
   });
 })();
 
-/* Читает все открытые без входа ветки (вопросы, расписание, розыгрыш) —
-   доступны только сигнатурам 'usernames' и 'raffle', остальное требует
-   auth != null, поэтому вызывается только ПОСЛЕ успешного входа. */
+/* Правила безопасности разрешают чтение по каждому пути отдельно
+   (users, quiz_schedule, ...), но НЕ дают права читать корень базы
+   целиком одним запросом — ref('/').once('value') требовал бы
+   отдельного правила на корне, которого нет и не планировалось.
+   Поэтому читаем каждый путь отдельно, параллельно. */
 async function loadAllDataIntoCache() {
-  const snap = await firebaseDB.ref('/').once('value');
-  const data = snap.val() || {};
+  const [usersSnap, scheduleSnap, subtitleSnap, questionsSnap, reportsSnap, raffleSnap] = await Promise.all([
+    firebaseDB.ref('users').once('value'),
+    firebaseDB.ref('quiz_schedule').once('value'),
+    firebaseDB.ref('quiz_subtitle').once('value'),
+    firebaseDB.ref('bible_questions').once('value'),
+    firebaseDB.ref('quiz_reports').once('value'),
+    firebaseDB.ref('raffle/entrants').once('value'),
+  ]);
 
-  if (data.users)
-    localStorage.setItem('users', JSON.stringify(data.users));
-  if (data.quiz_schedule)
-    localStorage.setItem('quiz_schedule', JSON.stringify(data.quiz_schedule));
-  if (data.quiz_subtitle != null)
-    localStorage.setItem('quiz_subtitle', JSON.stringify(data.quiz_subtitle));
-  if (data.bible_questions)
-    localStorage.setItem('bible_questions', JSON.stringify(fbToArray(data.bible_questions)));
-  if (data.quiz_reports)
-    localStorage.setItem('quiz_reports', JSON.stringify(fbToArray(data.quiz_reports)));
-  if (data.raffle && data.raffle.entrants)
-    localStorage.setItem('raffle_entrants_cache', JSON.stringify(data.raffle.entrants));
+  if (usersSnap.val())
+    localStorage.setItem('users', JSON.stringify(usersSnap.val()));
+  if (scheduleSnap.val())
+    localStorage.setItem('quiz_schedule', JSON.stringify(scheduleSnap.val()));
+  if (subtitleSnap.val() != null)
+    localStorage.setItem('quiz_subtitle', JSON.stringify(subtitleSnap.val()));
+  if (questionsSnap.val())
+    localStorage.setItem('bible_questions', JSON.stringify(fbToArray(questionsSnap.val())));
+  if (reportsSnap.val())
+    localStorage.setItem('quiz_reports', JSON.stringify(fbToArray(reportsSnap.val())));
+  if (raffleSnap.val())
+    localStorage.setItem('raffle_entrants_cache', JSON.stringify(raffleSnap.val()));
 }
 
 function showSignedOutScreen() {
